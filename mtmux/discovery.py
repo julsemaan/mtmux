@@ -162,7 +162,7 @@ class RemotePoller:
         for host, request in list(self._active.items()):
             returncode = request.process.poll()
             if returncode is None:
-                if not request.timed_out and now - request.started >= 3:
+                if not request.timed_out and now - request.started >= 10:
                     request.process.terminate()
                     request.timed_out = True
                     changed |= self.snapshots[host] != UNAVAILABLE
