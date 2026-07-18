@@ -42,6 +42,12 @@ def _fix_layout(left: str) -> None:
     tmux.tmux("select-layout", "-t", TARGET, "main-vertical")
 
 
+def _install_layout_hooks(left: str) -> None:
+    command = f"set-window-option -t {TARGET} main-pane-width {SIDEBAR_WIDTH} ; select-pane -t {left} ; select-layout -t {TARGET} main-vertical"
+    tmux.tmux("set-hook", "-t", tmux.SESSION, "client-attached", command)
+    tmux.tmux("set-hook", "-t", tmux.SESSION, "client-resized", command)
+
+
 def _build() -> None:
     _, wrapper = ensure_config()
     if _window_exists():
@@ -54,6 +60,7 @@ def _build() -> None:
     left = tmux.out("split-window", "-h", "-b", "-l", SIDEBAR_WIDTH, "-P", "-F", "#{pane_id}", "-t", right, SIDEBAR)
     _fix_layout(left)
     _set_markers(left, right)
+    _install_layout_hooks(left)
     tmux.tmux("set-option", "-t", tmux.SESSION, "prefix", "C-g")
     tmux.tmux("set-option", "-t", tmux.SESSION, "status", "off")
     tmux.tmux("set-option", "-t", tmux.SESSION, "mouse", "off")
@@ -62,7 +69,9 @@ def _build() -> None:
 
 def ensure_cockpit() -> None:
     if _valid():
-        _fix_layout(_option("@mtmux_sidebar_pane"))
+        left = _option("@mtmux_sidebar_pane")
+        _fix_layout(left)
+        _install_layout_hooks(left)
         return
     if _option("@mtmux_cockpit") == "1":
         right = _option("@mtmux_right_pane")
@@ -70,6 +79,7 @@ def ensure_cockpit() -> None:
             left = tmux.out("split-window", "-h", "-b", "-l", SIDEBAR_WIDTH, "-P", "-F", "#{pane_id}", "-t", right, SIDEBAR)
             _fix_layout(left)
             _set_markers(left, right)
+            _install_layout_hooks(left)
             return
     _build()
 

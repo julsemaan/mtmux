@@ -25,10 +25,27 @@ class CockpitLayoutTest(unittest.TestCase):
             patch.object(cockpit, "_valid", return_value=True),
             patch.object(cockpit, "_option", return_value="%1"),
             patch.object(cockpit, "_fix_layout") as fix_layout,
+            patch.object(cockpit, "_install_layout_hooks") as install_layout_hooks,
         ):
             cockpit.ensure_cockpit()
 
         fix_layout.assert_called_once_with("%1")
+        install_layout_hooks.assert_called_once_with("%1")
+
+    def test_layout_hooks_repin_sidebar_after_attach_or_resize(self):
+        calls = []
+
+        with patch.object(cockpit.tmux, "tmux", side_effect=lambda *args, **kwargs: calls.append(args)):
+            cockpit._install_layout_hooks("%1")
+
+        command = "set-window-option -t mtmux:cockpit main-pane-width 30 ; select-pane -t %1 ; select-layout -t mtmux:cockpit main-vertical"
+        self.assertEqual(
+            calls,
+            [
+                ("set-hook", "-t", "mtmux", "client-attached", command),
+                ("set-hook", "-t", "mtmux", "client-resized", command),
+            ],
+        )
 
 
 if __name__ == "__main__":
