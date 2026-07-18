@@ -13,6 +13,7 @@ from mtmux.sidebar import (
     _selected_before,
     _selected_index,
     _viewport,
+    main,
     run,
 )
 
@@ -50,6 +51,12 @@ class FakeScreen:
 
 
 class SidebarDrawTest(unittest.TestCase):
+    def test_main_restarts_after_keyboard_interrupt(self):
+        with patch("mtmux.sidebar.curses.wrapper", side_effect=[KeyboardInterrupt, None]) as wrapper:
+            self.assertEqual(main(), 0)
+
+        self.assertEqual(wrapper.call_count, 2)
+
     def test_status_line_pads_shorter_message(self):
         screen = FakeScreen()
 
