@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 import tomllib
 
+from .names import Target, parse_target
+
 DEFAULT_PREFIX = "C-s"
 CONFIG_TEXT = f'hosts = []\nprefix = "{DEFAULT_PREFIX}"\n'
 WRAPPER_TEXT = """unbind C-b
@@ -56,3 +58,24 @@ def load_hosts() -> list[str]:
     if not isinstance(hosts, list) or not all(isinstance(h, str) for h in hosts):
         raise SystemExit(f"Invalid config {cfg}: hosts must be a list of strings")
     return hosts
+
+
+def load_stars() -> set[Target]:
+    path = config_dir() / "stars"
+    if not path.exists():
+        return set()
+    favorites = set()
+    for line_number, line in enumerate(path.read_text().splitlines(), 1):
+        if not (text := line.strip()):
+            continue
+        try:
+            favorites.add(parse_target(text))
+        except SystemExit as e:
+            raise SystemExit(f"Invalid favorite in {path}:{line_number}: {e}") from e
+    return favorites
+
+
+def save_stars(favorites: set[Target]) -> None:
+    path = config_dir() / "stars"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(f"{target}\n" for target in sorted(t.format() for t in favorites)))

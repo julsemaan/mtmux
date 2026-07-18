@@ -53,6 +53,29 @@ class ConfigTest(unittest.TestCase):
                 with self.assertRaisesRegex(SystemExit, "prefix must be a non-empty, printable, whitespace-free string"):
                     config.load_prefix()
 
+    def test_missing_stars_file_loads_empty(self):
+        self.assertEqual(config.load_stars(), set())
+
+    def test_stars_ignore_blanks_and_parse_targets(self):
+        stars = Path(self.tempdir.name) / "stars"
+        stars.write_text("\nlocal:work\nssh:dev:notes\n\n")
+
+        self.assertEqual(config.load_stars(), {config.parse_target("local:work"), config.parse_target("ssh:dev:notes")})
+
+    def test_invalid_star_reports_file_context(self):
+        stars = Path(self.tempdir.name) / "stars"
+        stars.write_text("bad target\n")
+
+        with self.assertRaisesRegex(SystemExit, rf"Invalid favorite in {stars}"):
+            config.load_stars()
+
+    def test_save_stars_sorts_targets(self):
+        favorites = {config.parse_target("ssh:dev:work"), config.parse_target("local:notes")}
+
+        config.save_stars(favorites)
+
+        self.assertEqual((Path(self.tempdir.name) / "stars").read_text(), "local:notes\nssh:dev:work\n")
+
 
 if __name__ == "__main__":
     unittest.main()

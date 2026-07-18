@@ -94,12 +94,15 @@ Switching uses outer tmux `respawn-pane` on right pane. Real tmux sessions stay 
 
 - `C-s s`: focus sidebar; recreates it if quit
 - `Enter`: switch selected target
+- `f`: star or unstar selected target
 - `n`: create session for selected group/target
 - `x`: kill selected session (asks first)
 - `r`: refresh discovery
 - `/`: filter
 - `?`: open help in right pane
 - `q`: quit sidebar only
+
+Starred sessions appear first, sorted by full target (`local:work`, `ssh:dev:work`), and remain in their LOCAL/SSH sections. Filtering matches their session names. Favorites persist in `~/.config/mtmux/stars`; unavailable favorites remain selectable so `f` can remove them, while switch and kill report them unavailable. Set `MTMUX_ASCII=1` to render stars as `*` instead of `⭐`.
 
 ## Mouse controls
 

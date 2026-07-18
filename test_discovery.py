@@ -121,7 +121,7 @@ class RemotePollerTest(unittest.TestCase):
         self.assertTrue(healthy.communicated)
 
     def test_timeout_isolated_from_completed_host(self):
-        clock = Mock(side_effect=[0, 4])
+        clock = Mock(side_effect=[0, 11])
         slow = FakeProcess()
         healthy = FakeProcess(0, "work:0:-\n")
         poller = RemotePoller(["slow", "dev"], popen=Mock(side_effect=[slow, healthy, FakeProcess()]), clock=clock)

@@ -18,6 +18,7 @@ Navigation
 
 Session actions
   Enter  switch
+  f      star/unstar session
   n      new session
   x      kill selected session
   /      filter sessions

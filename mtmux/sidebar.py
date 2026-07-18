@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from . import tmux
 from .discovery import RemotePoller, RemoteSnapshot, local_bell_sessions, local_sessions
-from .config import load_hosts
+from .config import load_hosts, load_stars, save_stars
 from .cockpit import right_pane
 from .names import Target, parse_target, validate_name
 from .switcher import create_local, create_remote, kill, show_help, switch
@@ -21,6 +21,8 @@ class Entry:
     kind: str  # header | session | create | unavailable
     target: Target | None = None
     host: str | None = None
+    starred: bool = False
+    unavailable_favorite: bool = False
 
 
 _COLOR: dict[str, int] = {}
@@ -33,8 +35,8 @@ def _ascii() -> bool:
 
 def _icons() -> dict[str, str]:
     if _ascii():
-        return {"local": "*", "remote": "*", "create": "+", "unavailable": "!", "selected": ">"}
-    return {"local": "●", "remote": "◆", "create": "＋", "unavailable": "⚠", "selected": "›"}
+        return {"local": "*", "remote": "*", "create": "+", "unavailable": "!", "selected": ">", "starred": "*"}
+    return {"local": "●", "remote": "◆", "create": "＋", "unavailable": "⚠", "selected": "›", "starred": "⭐"}
 
 
 def _init_colors() -> None:
@@ -79,12 +81,23 @@ def _entries(
     filter_text: str,
     local: list[str],
     remote: dict[str, RemoteSnapshot | None],
+    favorites: set[Target] | None = None,
 ) -> list[Entry]:
     needle = filter_text.lower()
-    out: list[Entry] = [Entry("LOCAL", "header")]
+    favorites = favorites or set()
+    available = {Target("local", session) for session in local}
+    for host, snapshot in remote.items():
+        if snapshot and snapshot.available:
+            available.update(Target("ssh", session, host) for session in snapshot.sessions)
+
+    starred = [target for target in sorted(favorites, key=lambda target: target.format()) if needle in target.session.lower()]
+    out = [Entry("STARRED", "header")] if starred else []
+    out.extend(Entry(target.format(), "session", target, target.host, True, target not in available) for target in starred)
+    out.append(Entry("LOCAL", "header"))
     for session in local:
         if needle in session.lower():
-            out.append(Entry(session, "session", Target("local", session)))
+            target = Target("local", session)
+            out.append(Entry(session, "session", target, starred=target in favorites))
     out.append(Entry("new local", "create", host=""))
 
     for host, snapshot in remote.items():
@@ -97,7 +110,8 @@ def _entries(
             continue
         for session in snapshot.sessions:
             if needle in session.lower():
-                out.append(Entry(session, "session", Target("ssh", session, host), host))
+                target = Target("ssh", session, host)
+                out.append(Entry(session, "session", target, host, target in favorites))
         out.append(Entry(f"new on {host}", "create", host=host))
     return out
 
@@ -253,7 +267,7 @@ def _draw_title(
     dimmed: bool = False,
 ) -> int:
     width = max(1, w)
-    count = sum(entry.kind == "session" for entry in entries)
+    count = len({entry.target for entry in entries if entry.kind == "session" and not entry.unavailable_favorite})
     brand = " MTMUX" if _ascii() else " 🖥️ MTMUX"
     left = f"{brand} / {filter_text}" if filtering else brand
     noun = ("match" if count == 1 else "matches") if filtering else ("session" if count == 1 else "sessions")
@@ -270,8 +284,9 @@ def _entry_text(entry: Entry, selected: bool, bell_targets: set[str], current_ta
     if entry.kind == "header":
         return entry.label
     if entry.kind == "session":
-        kind = "remote" if entry.target and entry.target.kind == "ssh" else "local"
-        text = f"{pointer} {icon[kind]} {entry.label}"
+        kind = "unavailable" if entry.unavailable_favorite else ("remote" if entry.target and entry.target.kind == "ssh" else "local")
+        marker = f" {icon['starred']}" if entry.starred else ""
+        text = f"{pointer} {icon[kind]}{marker} {entry.label}"
         if entry.target and entry.target.format() in bell_targets and entry.target != current_target:
             text += " 🔔"
         return text
@@ -285,6 +300,8 @@ def _entry_attr(entry: Entry, selected: bool, dimmed: bool = False) -> int:
         attr = _color("selected") or curses.A_REVERSE
     elif entry.kind == "header":
         attr = curses.A_BOLD
+    elif entry.unavailable_favorite:
+        attr = _color("unavailable") or curses.A_DIM
     elif entry.kind == "session" and entry.target and entry.target.kind == "ssh":
         attr = _color("remote")
     elif entry.kind == "session":
@@ -390,21 +407,22 @@ def run(stdscr: curses.window) -> None:
     _init_colors()
     curses.curs_set(0)
     _mouse_mask()
-    status = "↵ switch n new x kill / filter ? help" if not _ascii() else "Enter go n new x kill / filter ? help"
+    status = "↵ go f star n new x kill / ?" if not _ascii() else "Enter f star n new x kill / ?"
     filter_text = ""
     filtering = False
     local = local_sessions()
+    favorites = load_stars()
     poller = RemotePoller(load_hosts())
-    entries = _entries(filter_text, local, poller.snapshots)
+    entries = _entries(filter_text, local, poller.snapshots, favorites)
     selected = _selected_index(entries, _current_target())
     rang_bells: set[str] = set()
     stdscr.timeout(500)
 
-    def rebuild(preferred: Target | None = None, old_index: int | None = None) -> None:
+    def rebuild(preferred: Target | None = None, old_index: int | None = None, starred: bool | None = None) -> None:
         nonlocal entries, selected
-        entries = _entries(filter_text, local, poller.snapshots)
+        entries = _entries(filter_text, local, poller.snapshots, favorites)
         if preferred and any(entry.target == preferred for entry in entries):
-            selected = _selected_index(entries, preferred)
+            selected = next((i for i, entry in enumerate(entries) if entry.target == preferred and (starred is None or entry.starred == starred)), _selected_index(entries, preferred))
         elif old_index is not None:
             choices = _selectable(entries)
             selected = min(choices, key=lambda index: abs(index - old_index)) if choices else 0
@@ -413,9 +431,10 @@ def run(stdscr: curses.window) -> None:
 
     try:
         while True:
-            current_selection = entries[selected].target if entries and selected < len(entries) else None
+            current_entry = entries[selected] if entries and selected < len(entries) else None
+            current_selection = current_entry.target if current_entry else None
             if poller.tick():
-                rebuild(current_selection, selected)
+                rebuild(old_index=selected)
             selectable = _selectable(entries)
             if selectable and selected not in selectable:
                 selected = selectable[0]
@@ -485,10 +504,29 @@ def run(stdscr: curses.window) -> None:
                     status = "help opened"
                 except SystemExit as e:
                     status = str(e)
+            elif key == ord("f"):
+                entry = entries[selected]
+                if not entry.target:
+                    status = "select session to star"
+                    continue
+                target = entry.target
+                was_starred_copy = entry.starred and entry.label == target.format()
+                if target in favorites:
+                    favorites.remove(target)
+                    save_stars(favorites)
+                    rebuild(target if not entry.unavailable_favorite else None, selected, False if was_starred_copy else None)
+                    status = f"unstarred {target.format()}"
+                else:
+                    favorites.add(target)
+                    save_stars(favorites)
+                    rebuild(target, starred=True)
+                    status = f"starred {target.format()}"
             elif key in (10, 13, curses.KEY_ENTER):
                 entry = entries[selected]
                 try:
-                    if entry.target:
+                    if entry.unavailable_favorite:
+                        status = f"unavailable {entry.target.format()}"
+                    elif entry.target:
                         switch(entry.target)
                         filter_text = ""
                         filtering = False
@@ -513,6 +551,9 @@ def run(stdscr: curses.window) -> None:
                 entry = entries[selected]
                 if not entry.target:
                     status = "select session to kill"
+                    continue
+                if entry.unavailable_favorite:
+                    status = f"unavailable {entry.target.format()}"
                     continue
                 answer = _read_key(stdscr, f"kill {entry.target.format()}? y/N")
                 if answer != ord("y"):

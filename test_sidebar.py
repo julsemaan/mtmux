@@ -10,6 +10,7 @@ from mtmux.sidebar import (
     _current_target,
     _draw,
     _fade,
+    _entries,
     _entry_at_row,
     _filter_key,
     _mouse_mask,
@@ -337,7 +338,7 @@ class SidebarDrawTest(unittest.TestCase):
             run(screen)
 
         footer_calls = [call for call in screen.calls if call[0] == "addnstr" and call[1] == 5]
-        self.assertTrue(any(call[3].rstrip() == "↵ switch n new x kill / filter ? help" for call in footer_calls))
+        self.assertTrue(any(call[3].rstrip() == "↵ go f star n new x kill / ?" for call in footer_calls))
 
     def test_run_sets_timeout_and_refreshes_on_timeout(self):
         screen = FakeScreen([-1, ord("q")])
@@ -504,6 +505,81 @@ class SidebarDrawTest(unittest.TestCase):
             run(screen)
 
         self.assertEqual(calls, ["", "w", ""])
+
+    def test_starred_entries_are_first_sorted_duplicated_and_stale(self):
+        local = ["work"]
+        remote = {"dev": RemoteSnapshot(True, ("notes",), frozenset())}
+        favorites = {Target("ssh", "gone", "off"), Target("local", "work"), Target("ssh", "notes", "dev")}
+
+        entries = _entries("", local, remote, favorites)
+
+        self.assertEqual([entry.label for entry in entries[:4]], ["STARRED", "local:work", "ssh:dev:notes", "ssh:off:gone"])
+        self.assertTrue(entries[3].unavailable_favorite)
+        self.assertEqual(sum(entry.target == Target("local", "work") for entry in entries), 2)
+        self.assertTrue(all(entry.starred for entry in entries if entry.target == Target("local", "work")))
+
+    def test_starred_filter_matches_session_name_and_hides_empty_header(self):
+        favorites = {Target("ssh", "work", "dev")}
+
+        self.assertEqual(_entries("missing", [], {}, favorites)[0].label, "LOCAL")
+        self.assertEqual(_entries("WORK", [], {}, favorites)[0].label, "STARRED")
+
+    def test_title_excludes_star_duplicates_and_stale_favorites(self):
+        screen = FakeScreen(size=(5, 40))
+        target = Target("local", "work")
+        entries = [Entry("local:work", "session", target, starred=True), Entry("work", "session", target, starred=True), Entry("local:gone", "session", Target("local", "gone"), starred=True, unavailable_favorite=True)]
+
+        _draw(screen, entries, 0, "ok", "")
+
+        title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
+        self.assertTrue(title[3].endswith("1 session"))
+
+    def test_rendered_star_uses_unicode_and_ascii_marker(self):
+        target = Target("local", "work")
+        entry = Entry("work", "session", target, starred=True)
+        for ascii_mode, marker in ((False, "⭐"), (True, "*")):
+            screen = FakeScreen(size=(6, 30))
+            with self.subTest(ascii=ascii_mode), patch("mtmux.sidebar._ascii", return_value=ascii_mode):
+                _draw(screen, [entry], 0, "ok", "")
+            self.assertTrue(any(call[0] == "addnstr" and marker in call[3] for call in screen.calls))
+
+    def test_f_stars_session_and_persists(self):
+        screen = FakeScreen([ord("f"), ord("q")], size=(8, 30))
+        target = Target("local", "work")
+
+        with (
+            patch("mtmux.sidebar.load_stars", return_value=set()),
+            patch("mtmux.sidebar.save_stars") as save,
+            patch("mtmux.sidebar.local_sessions", return_value=["work"]),
+            patch("mtmux.sidebar.load_hosts", return_value=[]),
+            patch("mtmux.sidebar.curses.curs_set"),
+            patch("mtmux.sidebar._init_colors"),
+            patch("mtmux.sidebar._bell_targets", return_value=set()),
+            patch("mtmux.sidebar._current_target", return_value=target),
+        ):
+            run(screen)
+
+        save.assert_called_once_with({target})
+
+    def test_stale_favorite_cannot_switch_or_kill(self):
+        screen = FakeScreen([10, ord("x"), ord("q")], size=(8, 30))
+        target = Target("local", "gone")
+
+        with (
+            patch("mtmux.sidebar.load_stars", return_value={target}),
+            patch("mtmux.sidebar.local_sessions", return_value=[]),
+            patch("mtmux.sidebar.load_hosts", return_value=[]),
+            patch("mtmux.sidebar.curses.curs_set"),
+            patch("mtmux.sidebar._init_colors"),
+            patch("mtmux.sidebar._bell_targets", return_value=set()),
+            patch("mtmux.sidebar._current_target", return_value=None),
+            patch("mtmux.sidebar.switch") as switch,
+            patch("mtmux.sidebar.kill") as kill,
+        ):
+            run(screen)
+
+        switch.assert_not_called()
+        kill.assert_not_called()
 
     def test_rendered_rows_include_icons(self):
         screen = FakeScreen(size=(6, 30))
