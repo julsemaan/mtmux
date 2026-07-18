@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from mtmux.names import Target
-from mtmux.switcher import _command, kill, show_help, switch
+from mtmux.switcher import _command, create_local, kill, show_help, switch
 
 
 class SwitcherCommandTest(unittest.TestCase):
@@ -50,13 +50,28 @@ class SwitcherCommandTest(unittest.TestCase):
         self.assertEqual(calls[1], ("select-pane", "-t", "%2"))
         self.assertIn("mtmux cockpit", calls[0][4])
 
-    def test_kill_local_session(self):
+    def test_kill_local_session_uses_default_server(self):
         calls = []
 
-        with patch("mtmux.switcher.subprocess.run", side_effect=lambda *args, **kwargs: calls.append((args, kwargs))):
+        with (
+            patch.dict("mtmux.switcher.os.environ", {"TMUX": "/tmp/mtmux,1,0", "PATH": "x"}, clear=True),
+            patch("mtmux.switcher.subprocess.run", side_effect=lambda *args, **kwargs: calls.append((args, kwargs))),
+        ):
             kill(Target("local", "work"))
 
-        self.assertEqual(calls, [((("tmux", "kill-session", "-t", "work"),), {"check": False})])
+        self.assertEqual(calls, [((("tmux", "kill-session", "-t", "work"),), {"check": False, "env": {"PATH": "x"}})])
+
+    def test_create_local_session_uses_default_server(self):
+        calls = []
+
+        with (
+            patch.dict("mtmux.switcher.os.environ", {"TMUX": "/tmp/mtmux,1,0", "PATH": "x"}, clear=True),
+            patch("mtmux.switcher.subprocess.run", side_effect=lambda *args, **kwargs: calls.append((args, kwargs))),
+            patch("mtmux.switcher.switch"),
+        ):
+            create_local("work")
+
+        self.assertEqual(calls, [((["tmux", "new-session", "-Ad", "-s", "work"],), {"check": False, "env": {"PATH": "x"}})])
 
     def test_kill_remote_session(self):
         calls = []

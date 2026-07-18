@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shlex
 import subprocess
 
@@ -8,6 +9,12 @@ from .names import Target
 from . import tmux
 
 NO_COCKPIT = "No valid mtmux cockpit. Run: mtmux cockpit"
+
+
+def _default_server_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env.pop("TMUX", None)
+    return env
 
 
 def _pane() -> str:
@@ -41,14 +48,14 @@ def show_help() -> None:
 
 def kill(target: Target) -> None:
     if target.kind == "local":
-        subprocess.run(("tmux", "kill-session", "-t", target.session), check=False)
+        subprocess.run(("tmux", "kill-session", "-t", target.session), check=False, env=_default_server_env())
         return
     subprocess.run(("ssh", target.host or "", f"tmux kill-session -t {shlex.quote(target.session)}"), check=False)
 
 
 def create_local(session: str) -> Target:
     from .names import Target
-    subprocess.run(["tmux", "new-session", "-Ad", "-s", session], check=False)
+    subprocess.run(["tmux", "new-session", "-Ad", "-s", session], check=False, env=_default_server_env())
     target = Target("local", session)
     switch(target)
     return target
