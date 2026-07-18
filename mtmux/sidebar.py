@@ -220,7 +220,7 @@ def _draw_title(
     filtering: bool = False,
     dimmed: bool = False,
 ) -> int:
-    width = max(1, w - 1)
+    width = max(1, w)
     count = sum(entry.kind == "session" for entry in entries)
     brand = " MTMUX" if _ascii() else " 🖥️ MTMUX"
     left = f"{brand} / {filter_text}" if filtering else brand

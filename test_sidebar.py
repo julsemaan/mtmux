@@ -165,7 +165,7 @@ class SidebarDrawTest(unittest.TestCase):
         _draw(screen, entries, 1, "ok", "")
 
         title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
-        self.assertEqual(title[3], " 🖥️ MTMUX" + " " * 20 + "2 sessions")
+        self.assertEqual(title[3], " 🖥️ MTMUX" + " " * 21 + "2 sessions")
 
     def test_title_count_uses_singular_labels(self):
         screen = FakeScreen(size=(5, 40))
@@ -178,7 +178,7 @@ class SidebarDrawTest(unittest.TestCase):
         screen = FakeScreen(size=(5, 40))
         _draw(screen, entries, 0, "filtering", "work", filtering=True)
         filtering = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
-        self.assertEqual(filtering[3].rstrip(), " 🖥️ MTMUX / work                1 match")
+        self.assertEqual(filtering[3].rstrip(), " 🖥️ MTMUX / work                 1 match")
 
     def test_filter_keeps_brand_query_count_and_cursor(self):
         screen = FakeScreen(size=(5, 40))
@@ -187,7 +187,7 @@ class SidebarDrawTest(unittest.TestCase):
         _draw(screen, entries, 0, "filtering", "work", filtering=True)
 
         title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
-        self.assertEqual(title[3].rstrip(), " 🖥️ MTMUX / work                1 match")
+        self.assertEqual(title[3].rstrip(), " 🖥️ MTMUX / work                 1 match")
         self.assertIn(("move", 0, len(" 🖥️ MTMUX / work")), screen.calls)
 
     def test_empty_filter_has_visible_input_position(self):
@@ -205,11 +205,20 @@ class SidebarDrawTest(unittest.TestCase):
         _draw(screen, [Entry("work", "session", Target("local", "work"))], 0, "filtering", "abcdefghij", filtering=True)
 
         title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
-        self.assertEqual(title[3], " 🖥️ MTMUX / abc")
+        self.assertEqual(title[3], " 🖥️ MTMUX / abcd")
         self.assertNotIn("match", title[3])
         cursor = next(call for call in screen.calls if call[0] == "move")
-        self.assertEqual(cursor, ("move", 0, 14))
-        self.assertLessEqual(cursor[2], 14)
+        self.assertEqual(cursor, ("move", 0, 15))
+        self.assertLessEqual(cursor[2], 15)
+
+    def test_title_colors_final_terminal_column(self):
+        screen = FakeScreen(size=(5, 20))
+
+        _draw(screen, [], 0, "ok", "")
+
+        title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
+        self.assertEqual(len(title[3]), 20)
+        self.assertEqual(title[4], 20)
 
     def test_title_uses_configured_style_and_dims_inactive_pane(self):
         screen = FakeScreen(size=(5, 20))
@@ -218,7 +227,7 @@ class SidebarDrawTest(unittest.TestCase):
             _draw(screen, [], 0, "ok", "", dimmed=True)
 
         title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
-        self.assertEqual(title[4], 19)
+        self.assertEqual(title[4], 20)
         self.assertEqual(title[5], _fade(123))
 
     def test_title_monochrome_fallback_is_bold_reverse_video(self):
