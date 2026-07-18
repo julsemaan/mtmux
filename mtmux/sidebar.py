@@ -103,6 +103,12 @@ def _selected_index(entries: list[Entry], target: Target | None) -> int:
     return selectable[0] if selectable else 0
 
 
+def _selected_before(entries: list[Entry], index: int) -> int:
+    selectable = _selectable(entries)
+    previous = [i for i in selectable if i < index]
+    return previous[-1] if previous else (selectable[0] if selectable else 0)
+
+
 def _current_target() -> Target | None:
     try:
         text = tmux.out("show-options", "-v", "-t", tmux.SESSION, "@mtmux_current_target", check=False)
@@ -399,7 +405,7 @@ def run(stdscr: curses.window) -> None:
                 continue
             kill(entry.target)
             entries = _entries(filter_text)
-            selected = _selected_index(entries, _current_target())
+            selected = _selected_before(entries, selected)
             status = f"killed {entry.target.format()}"
         elif key == ord("n"):
             entry = entries[selected]

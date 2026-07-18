@@ -10,6 +10,7 @@ from mtmux.sidebar import (
     _filter_key,
     _prompt,
     _read_key,
+    _selected_before,
     _selected_index,
     _viewport,
     run,
@@ -254,6 +255,15 @@ class SidebarDrawTest(unittest.TestCase):
         ]
 
         self.assertEqual(_selected_index(entries, Target("local", "work")), 2)
+
+    def test_selected_before_picks_previous_selectable_row(self):
+        entries = [
+            Entry("LOCAL", "header"),
+            Entry("notes", "session", Target("local", "notes")),
+            Entry("new local", "create", host=""),
+        ]
+
+        self.assertEqual(_selected_before(entries, 2), 1)
 
     def test_current_target_falls_back_to_right_pane_command(self):
         def out(*args, **kwargs):
