@@ -1,4 +1,3 @@
 - The bottom status bar of mtmux leaves characters from previous message (ex: create a new session named `b`, it shows `created bb`)
-- When doing mtmux cockpit for a fresh session, it starts with a 50% split. If I detach and rerun mtmux cockpit, the split is as expected
 - Should allow killing sessions from mtmux
 - Better way to get to the side bar. Some shortcut that will focus on it and open it if it is not open already

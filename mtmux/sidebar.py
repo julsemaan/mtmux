@@ -41,12 +41,13 @@ def _selectable(entries: list[Entry]) -> list[int]:
 
 def _prompt(stdscr: curses.window, prompt: str) -> str:
     curses.echo()
-    h, _ = stdscr.getmaxyx()
-    stdscr.move(h - 1, 0)
-    stdscr.clrtoeol()
+    h, w = stdscr.getmaxyx()
+    stdscr.addnstr(h - 1, 0, " " * (w - 1), w - 1)
     stdscr.addstr(h - 1, 0, prompt)
-    value = stdscr.getstr(h - 1, len(prompt), 64).decode().strip()
+    value = stdscr.getstr(h - 1, len(prompt), max(0, w - len(prompt) - 1)).decode().strip()
     curses.noecho()
+    stdscr.addnstr(h - 1, 0, " " * (w - 1), w - 1)
+    stdscr.refresh()
     return value
 
 
@@ -62,7 +63,7 @@ def _draw(stdscr: curses.window, entries: list[Entry], selected: int, status: st
         if target is None and new_host is None and not label.startswith("  +"):
             attr |= curses.A_BOLD
         stdscr.addnstr(row, 0, label, w - 1, attr)
-    stdscr.addnstr(h - 1, 0, status[: w - 1], w - 1)
+    stdscr.addnstr(h - 1, 0, status[: w - 1].ljust(w - 1), w - 1)
     stdscr.refresh()
 
 
