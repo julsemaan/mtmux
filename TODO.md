@@ -1,2 +1,3 @@
 - When filtering and pressing ctrl-c, it restarts mtmux and needs to fetch all the SSH tmux windows
 - Allow customizing via config the size of the left pane
+- Have starred sessions that appear in a section at the top
