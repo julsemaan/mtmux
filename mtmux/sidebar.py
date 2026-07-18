@@ -109,8 +109,11 @@ def _selected_index(entries: list[Entry], target: Target | None) -> int:
         for i, entry in enumerate(entries):
             if entry.target == target:
                 return i
-    selectable = _selectable(entries)
-    return selectable[0] if selectable else 0
+    for kind in ("session", "create"):
+        for i, entry in enumerate(entries):
+            if entry.kind == kind:
+                return i
+    return 0
 
 
 def _selected_before(entries: list[Entry], index: int) -> int:

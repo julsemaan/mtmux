@@ -326,6 +326,16 @@ class SidebarDrawTest(unittest.TestCase):
 
         self.assertEqual(_selected_index(entries, Target("local", "work")), 2)
 
+    def test_selected_index_prefers_session_over_earlier_create(self):
+        entries = [
+            Entry("LOCAL", "header"),
+            Entry("new local", "create", host=""),
+            Entry("SSH dev", "header"),
+            Entry("work", "session", Target("ssh", "work", "dev"), "dev"),
+        ]
+
+        self.assertEqual(_selected_index(entries, Target("local", "missing")), 3)
+
     def test_selected_before_picks_previous_selectable_row(self):
         entries = [
             Entry("LOCAL", "header"),
