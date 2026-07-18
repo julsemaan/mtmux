@@ -24,6 +24,7 @@ class Entry:
     host: str | None = None
     starred: bool = False
     unavailable_favorite: bool = False
+    starred_section: bool = False
 
 
 _COLOR: dict[str, int] = {}
@@ -93,9 +94,13 @@ def _entries(
 
     starred = [target for target in sorted(favorites, key=lambda target: target.format()) if needle in target.session.lower()]
     out = [Entry("STARRED", "header")] if starred else []
-    out.extend(Entry(target.format(), "session", target, target.host, True, target not in available) for target in starred)
+    hostname = socket.gethostname()
+    out.extend(
+        Entry(target.session, "session", target, target.host or hostname, True, target not in available, True)
+        for target in starred
+    )
     icons = _icons()
-    out.append(Entry(f"{icons['local_header']} {socket.gethostname()}", "header"))
+    out.append(Entry(f"{icons['local_header']} {hostname}", "header"))
     for session in local:
         if needle in session.lower():
             target = Target("local", session)
@@ -218,32 +223,44 @@ def _bell_targets(remote: dict[str, RemoteSnapshot | None]) -> set[str]:
     return targets
 
 
+def _entry_height(entry: Entry) -> int:
+    return 2 if entry.starred_section else 1
+
+
 def _viewport(entries: list[Entry], selected: int, height: int) -> tuple[int, int]:
     body = max(0, height - 2)
-    if len(entries) <= body:
-        return 0, len(entries)
-    if body <= 1:
+    if not entries or body <= 0:
+        return selected, selected
+    if body == 1:
         return selected, min(len(entries), selected + 1)
 
-    slots = max(1, body - int(selected > 0) - int(selected < len(entries) - 1))
-    start = selected
-    end = selected + 1
-    while end - start < slots and (start > 0 or end < len(entries)):
-        if start > 0:
-            start -= 1
-        if end - start < slots and end < len(entries):
-            end += 1
-    return start, end
+    best = (selected, min(len(entries), selected + 1))
+    best_score = (-1, -1, -1)
+    row_offsets = [0]
+    for entry in entries:
+        row_offsets.append(row_offsets[-1] + _entry_height(entry))
+    for start in range(selected + 1):
+        for end in range(selected + 1, len(entries) + 1):
+            rows = row_offsets[end] - row_offsets[start]
+            used = rows + int(start > 0) + int(end < len(entries))
+            if used <= body:
+                score = (rows, end - start, -abs((start + end - 1) - 2 * selected))
+                if score > best_score:
+                    best, best_score = (start, end), score
+    return best
 
 
 def _entry_at_row(entries: list[Entry], selected: int, row: int, height: int, footer_height: int) -> int | None:
     content_height = height - footer_height + 1
     start, end = _viewport(entries, selected, content_height)
     entry_row = row - 1 - int(start > 0)
-    index = start + entry_row
-    if entry_row < 0 or row >= height - footer_height or index >= end:
+    if entry_row < 0 or row >= height - footer_height:
         return None
-    return index if entries[index].kind in ("session", "create") else None
+    for index in range(start, end):
+        if entry_row < _entry_height(entries[index]):
+            return index if entries[index].kind in ("session", "create") else None
+        entry_row -= _entry_height(entries[index])
+    return None
 
 
 def _mouse_mask() -> None:
@@ -280,21 +297,45 @@ def _draw_title(
     return min(width - 1, len(left))
 
 
-def _entry_text(entry: Entry, selected: bool, bell_targets: set[str], current_target: Target | None) -> str:
+def _truncate(text: str, width: int) -> str:
+    if len(text) <= width:
+        return text
+    ellipsis = "..." if _ascii() else "…"
+    return ellipsis[:width] if width <= len(ellipsis) else text[: width - len(ellipsis)] + ellipsis
+
+
+def _entry_lines(
+    entry: Entry,
+    selected: bool,
+    bell_targets: set[str],
+    current_target: Target | None,
+    width: int,
+) -> list[str]:
     icon = _icons()
     pointer = icon["selected"] if selected else " "
     if entry.kind == "header":
-        return entry.label
+        return [_truncate(entry.label, width)]
     if entry.kind == "session":
         kind = "unavailable" if entry.unavailable_favorite else ("remote" if entry.target and entry.target.kind == "ssh" else "local")
         session_icon = icon["starred"] if entry.starred else icon[kind]
-        text = f"{pointer} {session_icon} {entry.label}"
-        if entry.target and entry.target.format() in bell_targets and entry.target != current_target:
-            text += " 🔔"
-        return text
+        bell = " BELL" if _ascii() else " 🔔"
+        bell = bell if entry.target and entry.target.format() in bell_targets and entry.target != current_target else ""
+        prefix = f"{pointer} {session_icon} "
+        first = prefix + _truncate(entry.label, max(0, width - len(prefix) - len(bell))) + bell
+        if not entry.starred_section:
+            return [first]
+        source = icon["remote_header"] if entry.target and entry.target.kind == "ssh" else icon["local_header"]
+        suffix = " unavailable" if entry.unavailable_favorite else ""
+        meta_prefix = f"    {source} "
+        host = _truncate(entry.host or "", max(0, width - len(meta_prefix) - len(suffix)))
+        return [first, meta_prefix + host + suffix]
     if entry.kind == "create":
-        return f"{pointer} {icon['create']} {entry.label}"
-    return f"  {icon['unavailable']} {entry.label}"
+        return [_truncate(f"{pointer} {icon['create']} {entry.label}", width)]
+    return [_truncate(f"  {icon['unavailable']} {entry.label}", width)]
+
+
+def _entry_text(entry: Entry, selected: bool, bell_targets: set[str], current_target: Target | None) -> str:
+    return _entry_lines(entry, selected, bell_targets, current_target, 10_000)[0]
 
 
 def _entry_attr(entry: Entry, selected: bool, dimmed: bool = False) -> int:
@@ -337,14 +378,15 @@ def _draw_entries(
         if row >= h - 1:
             break
         entry = entries[idx]
-        stdscr.addnstr(
-            row,
-            0,
-            _entry_text(entry, idx == selected, bell_targets, current_target),
-            w - 1,
-            _entry_attr(entry, idx == selected, dimmed),
-        )
-        row += 1
+        selected_entry = idx == selected
+        lines = _entry_lines(entry, selected_entry, bell_targets, current_target, w - 1)
+        base_attr = _entry_attr(entry, selected_entry, dimmed)
+        for line_number, line in enumerate(lines):
+            if row >= h - 1:
+                break
+            attr = _fade(base_attr) if line_number and not selected_entry else base_attr
+            stdscr.addnstr(row, 0, line, w - 1, attr)
+            row += 1
     if end < len(entries) and row < h - 1:
         attr = _color("hints") or curses.A_DIM
         stdscr.addnstr(row, 0, "↓ more", w - 1, _fade(attr) if dimmed else attr)
@@ -512,7 +554,7 @@ def run(stdscr: curses.window) -> None:
                     status = "select session to star"
                     continue
                 target = entry.target
-                was_starred_copy = entry.starred and entry.label == target.format()
+                was_starred_copy = entry.starred_section
                 if target in favorites:
                     favorites.remove(target)
                     save_stars(favorites)
