@@ -556,7 +556,7 @@ class SidebarDrawTest(unittest.TestCase):
     def test_rendered_star_replaces_session_icon(self):
         target = Target("local", "work")
         entries = [Entry("work", "session", target, starred=True), Entry("notes", "session", Target("local", "notes"))]
-        for ascii_mode, expected in ((False, ("› ✶ work", "  ● notes")), (True, ("> * work", "  * notes"))):
+        for ascii_mode, expected in ((False, ("› ✱ work", "  ● notes")), (True, ("> * work", "  * notes"))):
             screen = FakeScreen(size=(6, 30))
             with self.subTest(ascii=ascii_mode), patch("mtmux.sidebar._ascii", return_value=ascii_mode):
                 _draw(screen, entries, 0, "ok", "")

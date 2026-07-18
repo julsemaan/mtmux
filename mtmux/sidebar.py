@@ -37,7 +37,7 @@ def _ascii() -> bool:
 def _icons() -> dict[str, str]:
     if _ascii():
         return {"local": "*", "remote": "*", "local_header": "LOCAL", "remote_header": "SSH", "create": "+", "unavailable": "!", "selected": ">", "starred": "*"}
-    return {"local": "●", "remote": "◆", "local_header": "💻", "remote_header": "🔐", "create": "＋", "unavailable": "⚠", "selected": "›", "starred": "✶"}
+    return {"local": "●", "remote": "◆", "local_header": "💻", "remote_header": "🔐", "create": "＋", "unavailable": "⚠", "selected": "›", "starred": "✱"}
 
 
 def _init_colors() -> None:
