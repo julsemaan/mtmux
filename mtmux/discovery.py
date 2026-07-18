@@ -42,6 +42,28 @@ def local_sessions() -> list[str]:
     return _valid_sessions(proc.stdout)
 
 
+def _bell_sessions(text: str) -> set[str]:
+    out = set()
+    for line in text.splitlines():
+        name, _, flag = line.partition(":")
+        if name.startswith("mtmux") or (flag not in ("1", "!") and "!" not in flag):
+            continue
+        try:
+            out.add(validate_name(name, "session"))
+        except SystemExit:
+            continue
+    return out
+
+
+def local_bell_sessions() -> set[str]:
+    subprocess.run(["tmux", "set-window-option", "-g", "monitor-bell", "on"], text=True, capture_output=True, check=False)
+    subprocess.run(["tmux", "set-option", "-g", "bell-action", "any"], text=True, capture_output=True, check=False)
+    proc = subprocess.run(["tmux", "list-windows", "-a", "-F", "#{session_name}:#{window_bell_flag}:#{window_flags}"], text=True, capture_output=True)
+    if proc.returncode != 0:
+        return set()
+    return _bell_sessions(proc.stdout)
+
+
 def remote_sessions(host: str) -> list[str] | None:
     validate_name(host, "host")
     cmd = [
@@ -62,6 +84,26 @@ def remote_sessions(host: str) -> list[str] | None:
     return _valid_sessions(proc.stdout)
 
 
+def remote_bell_sessions(host: str) -> set[str]:
+    validate_name(host, "host")
+    cmd = [
+        "ssh",
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=1",
+        "-o", "ServerAliveInterval=1",
+        "-o", "ServerAliveCountMax=1",
+        host,
+        'tmux set-window-option -g monitor-bell on 2>/dev/null; tmux set-option -g bell-action any 2>/dev/null; tmux list-windows -a -F "#{session_name}:#{window_bell_flag}:#{window_flags}" 2>/dev/null || true',
+    ]
+    try:
+        proc = subprocess.run(cmd, text=True, capture_output=True, timeout=3)
+    except subprocess.TimeoutExpired:
+        return set()
+    if proc.returncode != 0:
+        return set()
+    return _bell_sessions(proc.stdout)
+
+
 def discover() -> list[DiscoveryResult]:
     results = [DiscoveryResult("local", True, session=s) for s in local_sessions()]
     for host in load_hosts():
@@ -72,3 +114,11 @@ def discover() -> list[DiscoveryResult]:
         else:
             results.extend(DiscoveryResult("ssh", True, session=s, host=host) for s in sessions)
     return results
+
+
+def bell_targets() -> set[str]:
+    out = {f"local:{session}" for session in local_bell_sessions()}
+    for host in load_hosts():
+        validate_name(host, "host")
+        out.update(f"ssh:{host}:{session}" for session in remote_bell_sessions(host))
+    return out

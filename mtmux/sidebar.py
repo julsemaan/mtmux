@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import curses
 
-from .discovery import discover, DiscoveryResult
+from . import tmux
+from .discovery import bell_targets as discovered_bell_targets, discover, DiscoveryResult
 from .names import Target, validate_name
 from .switcher import create_local, create_remote, kill, show_help, switch
 
@@ -40,26 +41,32 @@ def _selectable(entries: list[Entry]) -> list[int]:
 
 
 def _prompt(stdscr: curses.window, prompt: str) -> str:
-    curses.echo()
     h, w = stdscr.getmaxyx()
-    stdscr.addnstr(h - 1, 0, " " * (w - 1), w - 1)
-    stdscr.addstr(h - 1, 0, prompt)
-    value = stdscr.getstr(h - 1, len(prompt), max(0, w - len(prompt) - 1)).decode().strip()
-    curses.noecho()
-    stdscr.addnstr(h - 1, 0, " " * (w - 1), w - 1)
-    stdscr.refresh()
-    return value
+    stdscr.timeout(-1)
+    curses.echo()
+    try:
+        stdscr.addnstr(h - 1, 0, " " * (w - 1), w - 1)
+        stdscr.addstr(h - 1, 0, prompt)
+        return stdscr.getstr(h - 1, len(prompt), max(0, w - len(prompt) - 1)).decode().strip()
+    finally:
+        curses.noecho()
+        stdscr.addnstr(h - 1, 0, " " * (w - 1), w - 1)
+        stdscr.refresh()
+        stdscr.timeout(500)
 
 
 def _read_key(stdscr: curses.window, prompt: str) -> int:
     h, w = stdscr.getmaxyx()
-    stdscr.addnstr(h - 1, 0, " " * (w - 1), w - 1)
-    stdscr.addnstr(h - 1, 0, prompt, w - 1)
-    stdscr.refresh()
-    key = stdscr.getch()
-    stdscr.addnstr(h - 1, 0, " " * (w - 1), w - 1)
-    stdscr.refresh()
-    return key
+    stdscr.timeout(-1)
+    try:
+        stdscr.addnstr(h - 1, 0, " " * (w - 1), w - 1)
+        stdscr.addnstr(h - 1, 0, prompt, w - 1)
+        stdscr.refresh()
+        return stdscr.getch()
+    finally:
+        stdscr.addnstr(h - 1, 0, " " * (w - 1), w - 1)
+        stdscr.refresh()
+        stdscr.timeout(500)
 
 
 def _filter_key(filter_text: str, key: int) -> str | None:
@@ -70,7 +77,19 @@ def _filter_key(filter_text: str, key: int) -> str | None:
     return None
 
 
-def _draw(stdscr: curses.window, entries: list[Entry], selected: int, status: str, filter_text: str) -> None:
+def _bell_targets() -> set[str]:
+    target = tmux.out("show-options", "-v", "-t", "mtmux", "@mtmux_bell_target", check=False)
+    out = discovered_bell_targets()
+    if target:
+        out.add(target)
+    return out
+
+
+def _current_target() -> str:
+    return tmux.out("show-options", "-v", "-t", "mtmux", "@mtmux_current_target", check=False)
+
+
+def _draw(stdscr: curses.window, entries: list[Entry], selected: int, status: str, filter_text: str, bell_targets: set[str], current_target: str = "") -> None:
     stdscr.erase()
     h, w = stdscr.getmaxyx()
     title = "mtmux"
@@ -81,7 +100,8 @@ def _draw(stdscr: curses.window, entries: list[Entry], selected: int, status: st
         attr = curses.A_REVERSE if row - 1 == selected else 0
         if target is None and new_host is None and not label.startswith("  +"):
             attr |= curses.A_BOLD
-        stdscr.addnstr(row, 0, label, w - 1, attr)
+        text = f"{label} 🔔" if target and target.format() in bell_targets and target.format() != current_target else label
+        stdscr.addnstr(row, 0, text, w - 1, attr)
     stdscr.addnstr(h - 1, 0, status[: w - 1].ljust(w - 1), w - 1)
     stdscr.refresh()
 
@@ -93,12 +113,23 @@ def run(stdscr: curses.window) -> None:
     filter_text = ""
     filtering = False
     entries = _entries(filter_text)
+    rang_bells: set[str] = set()
+    stdscr.timeout(500)
     while True:
         selectable = _selectable(entries)
         if selectable and selected not in selectable:
             selected = selectable[0]
-        _draw(stdscr, entries, selected, status, filter_text)
+        bell_targets = _bell_targets()
+        current_target = _current_target()
+        visible_bells = bell_targets - {current_target}
+        if visible_bells - rang_bells:
+            curses.beep()
+        rang_bells = visible_bells
+        _draw(stdscr, entries, selected, status, filter_text, bell_targets, current_target)
         key = stdscr.getch()
+        if key == -1:
+            entries = _entries(filter_text)
+            continue
         if filtering:
             if key == 27:
                 filtering = False

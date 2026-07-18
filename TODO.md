@@ -1,2 +1,3 @@
 - When filtering sessions, it should be a live filter. Then once a session is selected, it should clear the filter
 - When pressing Ctrl-C as a way to end what I am doing (ex: filtering), it closes the left pane
+- When there is a bell coming from a tmux session, it should appear as a bell in the left pane

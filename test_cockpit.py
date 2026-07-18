@@ -27,11 +27,13 @@ class CockpitLayoutTest(unittest.TestCase):
             patch.object(cockpit, "_fix_layout") as fix_layout,
             patch.object(cockpit, "_install_layout_hooks") as install_layout_hooks,
             patch.object(cockpit, "_install_bindings") as install_bindings,
+            patch.object(cockpit, "_install_bell_hook") as install_bell_hook,
         ):
             cockpit.ensure_cockpit()
 
         fix_layout.assert_called_once_with("%1")
         install_layout_hooks.assert_called_once_with("%1")
+        install_bell_hook.assert_called_once_with()
         install_bindings.assert_called_once_with()
 
     def test_layout_hooks_repin_sidebar_after_attach_or_resize(self):
@@ -60,6 +62,27 @@ class CockpitLayoutTest(unittest.TestCase):
             [
                 ("bind-key", "C-g", "send-prefix"),
                 ("bind-key", "s", "run-shell", cockpit.FOCUS_SIDEBAR),
+            ],
+        )
+
+    def test_install_bell_hook_enables_outer_tmux_bells(self):
+        calls = []
+
+        with patch.object(cockpit.tmux, "tmux", side_effect=lambda *args, **kwargs: calls.append(args)):
+            cockpit._install_bell_hook()
+
+        self.assertEqual(
+            calls,
+            [
+                ("set-window-option", "-t", "mtmux:cockpit", "monitor-bell", "on"),
+                ("set-option", "-t", "mtmux", "bell-action", "any"),
+                (
+                    "set-hook",
+                    "-t",
+                    "mtmux",
+                    "alert-bell",
+                    "set-option -F -t mtmux @mtmux_bell_target '#{@mtmux_current_target}'",
+                ),
             ],
         )
 

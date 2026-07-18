@@ -30,6 +30,8 @@ class SwitcherCommandTest(unittest.TestCase):
         self.assertEqual(
             calls,
             [
+                ("set-option", "-t", "mtmux", "@mtmux_current_target", "local:work"),
+                ("set-option", "-u", "-t", "mtmux", "@mtmux_bell_target"),
                 ("respawn-pane", "-k", "-t", "%2", "env -u TMUX tmux new-session -A -s work"),
                 ("select-pane", "-t", "%2"),
             ],

@@ -54,6 +54,12 @@ def _install_bindings() -> None:
     tmux.tmux("bind-key", "s", "run-shell", FOCUS_SIDEBAR)
 
 
+def _install_bell_hook() -> None:
+    tmux.tmux("set-window-option", "-t", TARGET, "monitor-bell", "on")
+    tmux.tmux("set-option", "-t", tmux.SESSION, "bell-action", "any")
+    tmux.tmux("set-hook", "-t", tmux.SESSION, "alert-bell", "set-option -F -t mtmux @mtmux_bell_target '#{@mtmux_current_target}'")
+
+
 def _build() -> None:
     _, wrapper = ensure_config()
     if _window_exists():
@@ -67,6 +73,7 @@ def _build() -> None:
     _fix_layout(left)
     _set_markers(left, right)
     _install_layout_hooks(left)
+    _install_bell_hook()
     tmux.tmux("set-option", "-t", tmux.SESSION, "prefix", "C-g")
     tmux.tmux("set-option", "-t", tmux.SESSION, "status", "off")
     tmux.tmux("set-option", "-t", tmux.SESSION, "mouse", "off")
@@ -78,6 +85,7 @@ def ensure_cockpit() -> None:
         left = _option("@mtmux_sidebar_pane")
         _fix_layout(left)
         _install_layout_hooks(left)
+        _install_bell_hook()
         _install_bindings()
         return
     if _option("@mtmux_cockpit") == "1":
@@ -87,6 +95,7 @@ def ensure_cockpit() -> None:
             _fix_layout(left)
             _set_markers(left, right)
             _install_layout_hooks(left)
+            _install_bell_hook()
             _install_bindings()
             return
     _build()

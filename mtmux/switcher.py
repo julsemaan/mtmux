@@ -27,6 +27,8 @@ def _command(target: Target) -> str:
 
 def switch(target: Target) -> None:
     pane = _pane()
+    tmux.tmux("set-option", "-t", tmux.SESSION, "@mtmux_current_target", target.format())
+    tmux.tmux("set-option", "-u", "-t", tmux.SESSION, "@mtmux_bell_target")
     tmux.tmux("respawn-pane", "-k", "-t", pane, _command(target))
     tmux.tmux("select-pane", "-t", pane)
 
