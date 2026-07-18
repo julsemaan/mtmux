@@ -5,10 +5,36 @@ import shlex
 import shutil
 import sys
 
-from .config import ensure_config
+from .config import ensure_config, load_prefix
 from . import tmux
 
-HELP = """printf 'mtmux cockpit\n\nNavigation\n  C-g s  focus/open sidebar\n  ?      open help\n  q      quit sidebar only\n\nSession actions\n  Enter  switch\n  n      new session\n  x      kill selected session\n  /      filter sessions\n  r      refresh\n\nRecovery\n  C-g d  detach cockpit\n  C-g s  restart/focus sidebar\n  Esc    cancel prompts/filter\n\nExamples\n  /work  filter sessions matching work\n  n      create local or remote session from selected group\n'; exec sh"""
+def help_command(prefix: str) -> str:
+    text = f"""mtmux cockpit
+
+Navigation
+  {prefix} s  focus/open sidebar
+  ?      open help
+  q      quit sidebar only
+
+Session actions
+  Enter  switch
+  n      new session
+  x      kill selected session
+  /      filter sessions
+  r      refresh
+
+Recovery
+  {prefix} d  detach cockpit
+  {prefix} s  restart/focus sidebar
+  Esc    cancel prompts/filter
+
+Examples
+  /work  filter sessions matching work
+  n      create local or remote session from selected group
+"""
+    return f"printf %s {shlex.quote(text)}; exec sh"
+
+
 SIDEBAR = f"{shlex.quote(sys.executable)} -m mtmux sidebar"
 FOCUS_SIDEBAR = f"{shlex.quote(sys.executable)} -m mtmux focus-sidebar"
 TARGET = f"{tmux.SESSION}:{tmux.WINDOW}"
@@ -49,8 +75,8 @@ def _install_layout_hooks(left: str) -> None:
     tmux.tmux("set-hook", "-t", tmux.SESSION, "client-resized", command)
 
 
-def _install_bindings() -> None:
-    tmux.tmux("bind-key", "C-g", "send-prefix")
+def _install_bindings(prefix: str) -> None:
+    tmux.tmux("bind-key", prefix, "send-prefix")
     tmux.tmux("bind-key", "s", "run-shell", FOCUS_SIDEBAR)
 
 
@@ -60,42 +86,45 @@ def _install_bell_hook() -> None:
     tmux.tmux("set-hook", "-t", tmux.SESSION, "alert-bell", "set-option -F -t mtmux @mtmux_bell_target '#{@mtmux_current_target}'")
 
 
-def _install_right_pane_reset(left: str, right: str) -> None:
+def _install_right_pane_reset(left: str, right: str, prefix: str) -> None:
     tmux.tmux("set-option", "-p", "-t", right, "remain-on-exit", "on")
-    command = f"if-shell -F '#{{==:#{{hook_pane}},{right}}}' {{ set-option -u -t {tmux.SESSION} @mtmux_current_target ; set-option -u -t {tmux.SESSION} @mtmux_bell_target ; respawn-pane -k -t {right} {shlex.quote(HELP)} ; select-pane -t {left} }}"
+    command = f"if-shell -F '#{{==:#{{hook_pane}},{right}}}' {{ set-option -u -t {tmux.SESSION} @mtmux_current_target ; set-option -u -t {tmux.SESSION} @mtmux_bell_target ; respawn-pane -k -t {right} {shlex.quote(help_command(prefix))} ; select-pane -t {left} }}"
     tmux.tmux("set-hook", "-t", tmux.SESSION, "pane-died", command)
 
 
-def _build() -> None:
+def _build(prefix: str) -> None:
     _, wrapper = ensure_config()
+    help_cmd = help_command(prefix)
     if _window_exists():
         tmux.tmux("kill-window", "-t", TARGET, check=False)
     if tmux.tmux("has-session", "-t", tmux.SESSION, check=False).returncode != 0:
-        tmux.tmux("new-session", "-d", "-s", tmux.SESSION, "-n", tmux.WINDOW, HELP, config=wrapper)
+        tmux.tmux("new-session", "-d", "-s", tmux.SESSION, "-n", tmux.WINDOW, help_cmd, config=wrapper)
     else:
-        tmux.tmux("new-window", "-d", "-t", tmux.SESSION, "-n", tmux.WINDOW, HELP)
+        tmux.tmux("new-window", "-d", "-t", tmux.SESSION, "-n", tmux.WINDOW, help_cmd)
     right = tmux.out("display-message", "-p", "-t", TARGET, "#{pane_id}")
     left = tmux.out("split-window", "-h", "-b", "-l", SIDEBAR_WIDTH, "-P", "-F", "#{pane_id}", "-t", right, SIDEBAR)
     _fix_layout(left)
     _set_markers(left, right)
     _install_layout_hooks(left)
     _install_bell_hook()
-    _install_right_pane_reset(left, right)
-    tmux.tmux("set-option", "-t", tmux.SESSION, "prefix", "C-g")
+    _install_right_pane_reset(left, right, prefix)
+    tmux.tmux("set-option", "-t", tmux.SESSION, "prefix", prefix)
     tmux.tmux("set-option", "-t", tmux.SESSION, "status", "off")
     tmux.tmux("set-option", "-t", tmux.SESSION, "mouse", "off")
-    _install_bindings()
+    _install_bindings(prefix)
 
 
 def ensure_cockpit() -> None:
+    prefix = load_prefix()
     if _valid():
         left = _option("@mtmux_sidebar_pane")
         right = _option("@mtmux_right_pane")
         _fix_layout(left)
         _install_layout_hooks(left)
         _install_bell_hook()
-        _install_right_pane_reset(left, right)
-        _install_bindings()
+        _install_right_pane_reset(left, right, prefix)
+        tmux.tmux("set-option", "-t", tmux.SESSION, "prefix", prefix)
+        _install_bindings(prefix)
         return
     if _option("@mtmux_cockpit") == "1":
         right = _option("@mtmux_right_pane")
@@ -105,10 +134,11 @@ def ensure_cockpit() -> None:
             _set_markers(left, right)
             _install_layout_hooks(left)
             _install_bell_hook()
-            _install_right_pane_reset(left, right)
-            _install_bindings()
+            _install_right_pane_reset(left, right, prefix)
+            tmux.tmux("set-option", "-t", tmux.SESSION, "prefix", prefix)
+            _install_bindings(prefix)
             return
-    _build()
+    _build(prefix)
 
 
 def _attach() -> int:

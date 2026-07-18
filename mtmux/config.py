@@ -4,10 +4,9 @@ import os
 from pathlib import Path
 import tomllib
 
-CONFIG_TEXT = "hosts = []\n"
-WRAPPER_TEXT = """set -g prefix C-g
-unbind C-b
-bind C-g send-prefix
+DEFAULT_PREFIX = "C-s"
+CONFIG_TEXT = f'hosts = []\nprefix = "{DEFAULT_PREFIX}"\n'
+WRAPPER_TEXT = """unbind C-b
 set -g status off
 set -g mouse off
 """
@@ -35,12 +34,24 @@ def ensure_config() -> tuple[Path, Path]:
     return cfg, wrapper
 
 
-def load_hosts() -> list[str]:
+def _load_config() -> tuple[Path, dict]:
     cfg, _ = ensure_config()
     try:
-        data = tomllib.loads(cfg.read_text())
+        return cfg, tomllib.loads(cfg.read_text())
     except tomllib.TOMLDecodeError as e:
         raise SystemExit(f"Invalid config TOML {cfg}: {e}") from e
+
+
+def load_prefix() -> str:
+    cfg, data = _load_config()
+    prefix = data.get("prefix", DEFAULT_PREFIX)
+    if not isinstance(prefix, str) or not prefix or not prefix.isprintable() or any(char.isspace() for char in prefix):
+        raise SystemExit(f"Invalid config {cfg}: prefix must be a non-empty, printable, whitespace-free string")
+    return prefix
+
+
+def load_hosts() -> list[str]:
+    cfg, data = _load_config()
     hosts = data.get("hosts", [])
     if not isinstance(hosts, list) or not all(isinstance(h, str) for h in hosts):
         raise SystemExit(f"Invalid config {cfg}: hosts must be a list of strings")

@@ -23,8 +23,8 @@ tmux -L mtmux
 
 Outer tmux owns layout only:
 
-- outer prefix: `C-g`
-- focus/open sidebar: `C-g s`
+- outer prefix: `C-s`
+- focus/open sidebar: `C-s s`
 - outer status: off
 - left pane: `mtmux` sidebar, 30 cols
 - right pane: selected local/remote tmux attach client
@@ -37,7 +37,14 @@ Files live in `~/.config/mtmux/`:
 
 ```toml
 hosts = ["prod", "dev"]
+prefix = "C-s"
 ```
+
+`prefix` accepts one non-empty, printable tmux key token without whitespace. Rerun `mtmux cockpit` after changing it.
+
+`C-s` normally sends XOFF when terminal `IXON` flow control is enabled. Attached tmux disables flow control on outer tty, so outer prefix works without global `stty` changes. Readline, Emacs, or Vim `C-s` commands require `C-s C-s` to forward literal `C-s`; inner tty may still treat it as XOFF, in which case `C-q` resumes output.
+
+To restore old prefix, set `prefix = "C-g"` and rerun `mtmux cockpit`.
 
 Hosts are SSH aliases only. Put users, ports, keys, proxies, IPv6, etc. in `~/.ssh/config`.
 
@@ -63,7 +70,7 @@ Switching uses outer tmux `respawn-pane` on right pane. Real tmux sessions stay 
 
 ## Sidebar keys
 
-- `C-g s`: focus sidebar; recreates it if quit
+- `C-s s`: focus sidebar; recreates it if quit
 - `Enter`: switch selected target
 - `n`: create session for selected group/target
 - `x`: kill selected session (asks first)
@@ -74,7 +81,7 @@ Switching uses outer tmux `respawn-pane` on right pane. Real tmux sessions stay 
 
 ## Recovery
 
-Press `C-g s` or rerun:
+Press `C-s s` or rerun:
 
 ```sh
 mtmux cockpit
