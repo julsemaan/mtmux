@@ -58,7 +58,7 @@ class SidebarDrawTest(unittest.TestCase):
         status_call = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 4)
         self.assertEqual(status_call[3], "created b".ljust(19))
 
-    def test_default_footer_wraps_and_reserves_bottom_rows_at_40_columns(self):
+    def test_long_footer_wraps_and_reserves_bottom_rows_at_40_columns(self):
         screen = FakeScreen(size=(6, 40))
         entries = [Entry(str(i), "session", Target("local", str(i))) for i in range(8)]
         status = "↵ switch  n new  x kill  / filter  r refresh  ? help"
@@ -140,6 +140,22 @@ class SidebarDrawTest(unittest.TestCase):
         _draw(screen, [Entry("work", "session", target)], 0, "", "", bell_targets={"local:work"}, current_target=target)
 
         self.assertFalse(any(call[0] == "addnstr" and "🔔" in call[3] for call in screen.calls))
+
+    def test_default_footer_fits_one_40_column_row(self):
+        screen = FakeScreen([ord("q")], size=(6, 40))
+
+        with (
+            patch("mtmux.sidebar._ascii", return_value=False),
+            patch("mtmux.sidebar.curses.curs_set"),
+            patch("mtmux.sidebar._init_colors"),
+            patch("mtmux.sidebar._entries", return_value=[Entry("work", "session", Target("local", "work"))]),
+            patch("mtmux.sidebar._bell_targets", return_value=set()),
+            patch("mtmux.sidebar._current_target", return_value=None),
+        ):
+            run(screen)
+
+        footer_calls = [call for call in screen.calls if call[0] == "addnstr" and call[1] == 5]
+        self.assertTrue(any(call[3].rstrip() == "↵ switch n new x kill / filter ? help" for call in footer_calls))
 
     def test_run_sets_timeout_and_refreshes_on_timeout(self):
         screen = FakeScreen([-1, ord("q")])

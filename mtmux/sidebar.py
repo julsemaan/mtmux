@@ -311,9 +311,9 @@ def run(stdscr: curses.window) -> None:
     _init_colors()
     curses.curs_set(0)
     selected = 0
-    status = "↵ switch  n new  x kill  / filter  r refresh  ? help"
+    status = "↵ switch n new x kill / filter ? help"
     if _ascii():
-        status = "Enter switch  n new  x kill  / filter  r refresh  ? help"
+        status = "Enter go n new x kill / filter ? help"
     filter_text = ""
     filtering = False
     entries = _entries(filter_text)
