@@ -28,9 +28,9 @@ def _pane() -> str:
 def _command(target: Target) -> str:
     session = shlex.quote(target.session)
     if target.kind == "local":
-        return f"env -u TMUX tmux new-session -A -s {session}"
+        return f"env -u TMUX tmux -T clipboard new-session -A -s {session}"
     host = shlex.quote(target.host or "")
-    return f"ssh -t {host} 'tmux new-session -A -s {session}'"
+    return f"ssh -t {host} 'tmux -T clipboard new-session -A -s {session}'"
 
 
 def switch(target: Target) -> None:

@@ -114,6 +114,12 @@ Starred sessions appear first, sorted by full target (`local:work`, `ssh:dev:wor
 
 Tmux mouse capture may require holding `Shift` for terminal-native text selection.
 
+## Clipboard
+
+Native tmux copy mode forwards copied text through nested sessions using OSC 52. Physical terminal must support and enable OSC 52 clipboard access. mtmux declares inner clients as `clipboard` capable and sets outer server option `set-clipboard on`; inner tmux configuration remains unchanged, including explicit `set-clipboard off`.
+
+**Security:** `set-clipboard on` permits processes in local and remote panes to set system clipboard through OSC 52. Only connect to trusted hosts and run trusted pane processes.
+
 ## Recovery
 
 Press `C-s s` or rerun:
