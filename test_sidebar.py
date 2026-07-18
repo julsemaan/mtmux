@@ -518,11 +518,30 @@ class SidebarDrawTest(unittest.TestCase):
         self.assertEqual(sum(entry.target == Target("local", "work") for entry in entries), 2)
         self.assertTrue(all(entry.starred for entry in entries if entry.target == Target("local", "work")))
 
+    def test_headers_identify_local_hostname_and_ssh_alias(self):
+        with patch("mtmux.sidebar.socket.gethostname", return_value="laptop"), patch(
+            "mtmux.sidebar._ascii", return_value=False
+        ):
+            entries = _entries("", [], {"dev": None})
+
+        self.assertEqual([entry.label for entry in entries if entry.kind == "header"], ["💻 laptop", "🔐 dev"])
+
+    def test_ascii_headers_preserve_text_only_labels(self):
+        with patch.dict("mtmux.sidebar.os.environ", {"MTMUX_ASCII": "1"}), patch(
+            "mtmux.sidebar.socket.gethostname", return_value="laptop"
+        ):
+            entries = _entries("", [], {"dev": None})
+
+        self.assertEqual([entry.label for entry in entries if entry.kind == "header"], ["LOCAL laptop", "SSH dev"])
+
     def test_starred_filter_matches_session_name_and_hides_empty_header(self):
         favorites = {Target("ssh", "work", "dev")}
 
-        self.assertEqual(_entries("missing", [], {}, favorites)[0].label, "LOCAL")
-        self.assertEqual(_entries("WORK", [], {}, favorites)[0].label, "STARRED")
+        with patch("mtmux.sidebar.socket.gethostname", return_value="laptop"), patch(
+            "mtmux.sidebar._ascii", return_value=False
+        ):
+            self.assertEqual(_entries("missing", [], {}, favorites)[0].label, "💻 laptop")
+            self.assertEqual(_entries("WORK", [], {}, favorites)[0].label, "STARRED")
 
     def test_title_excludes_star_duplicates_and_stale_favorites(self):
         screen = FakeScreen(size=(5, 40))

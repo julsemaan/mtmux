@@ -4,6 +4,7 @@ import curses
 import locale
 import os
 import re
+import socket
 import textwrap
 from dataclasses import dataclass
 
@@ -35,8 +36,8 @@ def _ascii() -> bool:
 
 def _icons() -> dict[str, str]:
     if _ascii():
-        return {"local": "*", "remote": "*", "create": "+", "unavailable": "!", "selected": ">", "starred": "*"}
-    return {"local": "●", "remote": "◆", "create": "＋", "unavailable": "⚠", "selected": "›", "starred": "⭐"}
+        return {"local": "*", "remote": "*", "local_header": "LOCAL", "remote_header": "SSH", "create": "+", "unavailable": "!", "selected": ">", "starred": "*"}
+    return {"local": "●", "remote": "◆", "local_header": "💻", "remote_header": "🔐", "create": "＋", "unavailable": "⚠", "selected": "›", "starred": "⭐"}
 
 
 def _init_colors() -> None:
@@ -93,7 +94,8 @@ def _entries(
     starred = [target for target in sorted(favorites, key=lambda target: target.format()) if needle in target.session.lower()]
     out = [Entry("STARRED", "header")] if starred else []
     out.extend(Entry(target.format(), "session", target, target.host, True, target not in available) for target in starred)
-    out.append(Entry("LOCAL", "header"))
+    icons = _icons()
+    out.append(Entry(f"{icons['local_header']} {socket.gethostname()}", "header"))
     for session in local:
         if needle in session.lower():
             target = Target("local", session)
@@ -101,7 +103,7 @@ def _entries(
     out.append(Entry("new local", "create", host=""))
 
     for host, snapshot in remote.items():
-        out.append(Entry(f"SSH {host}", "header"))
+        out.append(Entry(f"{icons['remote_header']} {host}", "header"))
         if snapshot is None:
             out.append(Entry("connecting…", "unavailable", host=host))
             continue
