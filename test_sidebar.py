@@ -132,25 +132,57 @@ class SidebarDrawTest(unittest.TestCase):
         self.assertIsNone(_entry_at_row(entries, 0, 2, 8, 1))  # unavailable
         self.assertIsNone(_entry_at_row(entries, 0, 6, 7, 1))  # footer/down marker
 
-    def test_status_line_pads_shorter_message(self):
-        screen = FakeScreen()
+    def test_default_footer_has_two_complete_shortcut_rows(self):
+        screen = FakeScreen(size=(7, 60))
+
+        _draw(screen, [Entry("LOCAL", "header")], 0, "", "")
+
+        footer = [call[3].rstrip() for call in screen.calls if call[0] == "addnstr" and call[1] >= 5]
+        self.assertEqual(footer, ["↵ switch  f star  n new  x kill", "/ filter  r refresh  ? help  q quit"])
+
+    def test_status_replaces_only_primary_footer_row(self):
+        screen = FakeScreen(size=(7, 60))
 
         _draw(screen, [Entry("LOCAL", "header")], 0, "created b", "")
 
-        status_call = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 4)
-        self.assertEqual(status_call[3], "created b".ljust(19))
+        footer = [call[3].rstrip() for call in screen.calls if call[0] == "addnstr" and call[1] >= 5]
+        self.assertEqual(footer, ["created b", "/ filter  r refresh  ? help  q quit"])
 
-    def test_long_footer_wraps_and_reserves_bottom_rows_at_40_columns(self):
-        screen = FakeScreen(size=(6, 40))
+    def test_long_footer_wraps_and_reserves_bottom_rows_at_20_columns(self):
+        screen = FakeScreen(size=(8, 20))
         entries = [Entry(str(i), "session", Target("local", str(i))) for i in range(8)]
-        status = "↵ switch  n new  x kill  / filter  r refresh  ? help"
 
-        _draw(screen, entries, 0, status, "")
+        footer_height = _draw(screen, entries, 0, "created a status message much longer than width", "")
 
-        footer_calls = [call for call in screen.calls if call[0] == "addnstr" and call[1] in (4, 5)]
-        self.assertEqual([call[1] for call in footer_calls], [4, 5])
-        self.assertIn("refresh  ? help", "".join(call[3] for call in footer_calls))
-        self.assertFalse(any(call[0] == "addnstr" and call[1] >= 4 and call[3].lstrip().startswith(tuple(str(i) for i in range(8))) for call in screen.calls))
+        footer_calls = [call for call in screen.calls if call[0] == "addnstr" and call[1] >= 3]
+        self.assertEqual(footer_height, 5)
+        self.assertIn("q quit", "".join(call[3] for call in footer_calls))
+        self.assertFalse(any(call[0] == "addnstr" and call[1] >= 3 and call[3].lstrip().startswith(tuple(str(i) for i in range(8))) for call in screen.calls))
+
+    def test_filtering_uses_two_instruction_rows_with_ascii_fallback(self):
+        for ascii_mode, expected in (
+            (False, ["type to filter  backspace edit", "esc clear  ↵ switch"]),
+            (True, ["type to filter  backspace edit", "esc clear  Enter switch"]),
+        ):
+            screen = FakeScreen(size=(7, 60))
+            with self.subTest(ascii=ascii_mode), patch("mtmux.sidebar._ascii", return_value=ascii_mode):
+                _draw(screen, [], 0, "ignored", "", filtering=True)
+            footer = [call[3].rstrip() for call in screen.calls if call[0] == "addnstr" and call[1] >= 5]
+            self.assertEqual(footer, expected)
+
+    def test_footer_reuses_title_style_and_dims_inactive_pane(self):
+        screen = FakeScreen(size=(7, 60))
+        with patch.dict("mtmux.sidebar._COLOR", {"title": 123}, clear=True):
+            _draw(screen, [], 0, "", "", dimmed=True)
+        footer = [call for call in screen.calls if call[0] == "addnstr" and call[1] >= 5]
+        self.assertTrue(all(call[5] == _fade(123) for call in footer))
+
+    def test_footer_monochrome_fallback_is_bold_reverse_video(self):
+        screen = FakeScreen(size=(7, 60))
+        with patch.dict("mtmux.sidebar._COLOR", {}, clear=True):
+            _draw(screen, [], 0, "", "")
+        footer = [call for call in screen.calls if call[0] == "addnstr" and call[1] >= 5]
+        self.assertTrue(all(call[5] & curses.A_BOLD and call[5] & curses.A_REVERSE for call in footer))
 
     def test_prompt_blanks_line_after_input(self):
         screen = FakeScreen([ord("b"), 10])
@@ -319,7 +351,7 @@ class SidebarDrawTest(unittest.TestCase):
         out.assert_called_once_with("show-options", "-v", "-t", "mtmux", "@mtmux_current_target", check=False)
 
     def test_draw_marks_matching_bell_target(self):
-        screen = FakeScreen()
+        screen = FakeScreen(size=(8, 40))
         target = Target("ssh", "work", "dev")
 
         _draw(screen, [Entry("work", "session", target)], 0, "", "", bell_targets={"ssh:dev:work"})
@@ -334,11 +366,12 @@ class SidebarDrawTest(unittest.TestCase):
 
         self.assertFalse(any(call[0] == "addnstr" and "🔔" in call[3] for call in screen.calls))
 
-    def test_default_footer_fits_one_40_column_row(self):
-        screen = FakeScreen([ord("q")], size=(6, 40))
+    def test_transient_status_remains_before_deadline_and_clears_afterward(self):
+        screen = FakeScreen([ord("r"), -1, -1, ord("q")], size=(7, 60))
 
         with (
-            patch("mtmux.sidebar._ascii", return_value=False),
+            patch("mtmux.sidebar.time.monotonic", side_effect=[0, 4.9, 5.0]),
+            patch("mtmux.sidebar.load_status_timeout", return_value=5),
             patch("mtmux.sidebar.curses.curs_set"),
             patch("mtmux.sidebar._init_colors"),
             patch("mtmux.sidebar._entries", return_value=[Entry("work", "session", Target("local", "work"))]),
@@ -347,8 +380,45 @@ class SidebarDrawTest(unittest.TestCase):
         ):
             run(screen)
 
-        footer_calls = [call for call in screen.calls if call[0] == "addnstr" and call[1] == 5]
-        self.assertTrue(any(call[3].rstrip() == "↵ go f star n new x kill / ?" for call in footer_calls))
+        primary = [call[3].rstrip() for call in screen.calls if call[0] == "addnstr" and call[1] == 5]
+        self.assertEqual(primary, ["↵ switch  f star  n new  x kill", "refreshing", "↵ switch  f star  n new  x kill", "↵ switch  f star  n new  x kill"])
+
+    def test_later_status_resets_deadline(self):
+        screen = FakeScreen([ord("r"), ord("?"), -1, -1, ord("q")], size=(7, 60))
+
+        with (
+            patch("mtmux.sidebar.time.monotonic", side_effect=[0, 4, 4, 8, 9]),
+            patch("mtmux.sidebar.load_status_timeout", return_value=5),
+            patch("mtmux.sidebar.show_help"),
+            patch("mtmux.sidebar.curses.curs_set"),
+            patch("mtmux.sidebar._init_colors"),
+            patch("mtmux.sidebar._entries", return_value=[Entry("work", "session", Target("local", "work"))]),
+            patch("mtmux.sidebar._bell_targets", return_value=set()),
+            patch("mtmux.sidebar._current_target", return_value=None),
+        ):
+            run(screen)
+
+        primary = [call[3].rstrip() for call in screen.calls if call[0] == "addnstr" and call[1] == 5]
+        self.assertEqual(primary[-3:], ["help opened", "↵ switch  f star  n new  x kill", "↵ switch  f star  n new  x kill"])
+
+    def test_custom_status_timeout_controls_expiry(self):
+        screen = FakeScreen([ord("r"), -1, -1, ord("q")], size=(7, 60))
+
+        with (
+            patch("mtmux.sidebar.time.monotonic", side_effect=[10, 11.9, 12]),
+            patch("mtmux.sidebar.load_status_timeout", return_value=2) as load_timeout,
+            patch("mtmux.sidebar.curses.curs_set"),
+            patch("mtmux.sidebar._init_colors"),
+            patch("mtmux.sidebar._entries", return_value=[Entry("work", "session", Target("local", "work"))]),
+            patch("mtmux.sidebar._bell_targets", return_value=set()),
+            patch("mtmux.sidebar._current_target", return_value=None),
+        ):
+            run(screen)
+
+        load_timeout.assert_called_once_with()
+        primary = [call[3].rstrip() for call in screen.calls if call[0] == "addnstr" and call[1] == 5]
+        self.assertIn("refreshing", primary)
+        self.assertEqual(primary[-1], "↵ switch  f star  n new  x kill")
 
     def test_run_sets_timeout_and_refreshes_on_timeout(self):
         screen = FakeScreen([-1, ord("q")])
@@ -612,7 +682,7 @@ class SidebarDrawTest(unittest.TestCase):
         kill.assert_not_called()
 
     def test_rendered_rows_include_icons(self):
-        screen = FakeScreen(size=(6, 30))
+        screen = FakeScreen(size=(9, 30))
 
         with patch("mtmux.sidebar._ascii", return_value=False):
             _draw(screen, [Entry("LOCAL", "header"), Entry("work", "session", Target("local", "work")), Entry("new local", "create", host="")], 1, "ok", "")
@@ -666,7 +736,7 @@ class SidebarDrawTest(unittest.TestCase):
         self.assertEqual(_selected_before(entries, 2), 1)
 
     def test_pending_remote_does_not_block_quit_and_poller_closes(self):
-        screen = FakeScreen([ord("q")], size=(8, 30))
+        screen = FakeScreen([ord("q")], size=(10, 30))
         poller = unittest.mock.Mock()
         poller.snapshots = {"dev": None}
         poller.tick.return_value = False
@@ -686,7 +756,7 @@ class SidebarDrawTest(unittest.TestCase):
         self.assertTrue(any(call[0] == "addnstr" and "connecting" in call[3] for call in screen.calls))
 
     def test_snapshot_completion_updates_remote_rows(self):
-        screen = FakeScreen([-1, ord("q")], size=(8, 30))
+        screen = FakeScreen([-1, ord("q")], size=(10, 30))
         poller = unittest.mock.Mock()
         poller.snapshots = {"dev": None}
 

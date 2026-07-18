@@ -6,11 +6,12 @@ import os
 import re
 import socket
 import textwrap
+import time
 from dataclasses import dataclass
 
 from . import tmux
 from .discovery import RemotePoller, RemoteSnapshot, local_bell_sessions, local_sessions
-from .config import load_hosts, load_stars, save_stars
+from .config import load_hosts, load_stars, load_status_timeout, save_stars
 from .cockpit import right_pane
 from .names import Target, parse_target, validate_name
 from .switcher import create_local, create_remote, kill, show_help, switch
@@ -358,12 +359,13 @@ def _draw_footer(
     filtering: bool = False,
     dimmed: bool = False,
 ) -> int:
-    footer = "type to filter  esc clear  backspace edit  ↵ switch" if filtering and not _ascii() else status
-    if filtering and _ascii():
-        footer = "type to filter  esc clear  backspace edit  Enter switch"
+    if filtering:
+        logical_rows = ["type to filter  backspace edit", f"esc clear  {'Enter' if _ascii() else '↵'} switch"]
+    else:
+        logical_rows = [status or f"{'Enter' if _ascii() else '↵'} switch  f star  n new  x kill", "/ filter  r refresh  ? help  q quit"]
     width = max(1, w - 1)
-    lines = textwrap.wrap(footer, width=width) or [""]
-    attr = _color("hints")
+    lines = [line for logical_row in logical_rows for line in (textwrap.wrap(logical_row, width=width) or [""])]
+    attr = _color("title") or (curses.A_BOLD | curses.A_REVERSE)
     for row, line in enumerate(lines, h - len(lines)):
         stdscr.addnstr(row, 0, line.ljust(w - 1), w - 1, _fade(attr) if dimmed else attr)
     return len(lines)
@@ -409,7 +411,9 @@ def run(stdscr: curses.window) -> None:
     _init_colors()
     curses.curs_set(0)
     _mouse_mask()
-    status = "↵ go f star n new x kill / ?" if not _ascii() else "Enter f star n new x kill / ?"
+    status = ""
+    status_deadline: float | None = None
+    status_timeout = load_status_timeout()
     filter_text = ""
     filtering = False
     local = local_sessions()
@@ -419,6 +423,11 @@ def run(stdscr: curses.window) -> None:
     selected = _selected_index(entries, _current_target())
     rang_bells: set[str] = set()
     stdscr.timeout(500)
+
+    def show_status(message: str) -> None:
+        nonlocal status, status_deadline
+        status = message
+        status_deadline = time.monotonic() + status_timeout
 
     def rebuild(preferred: Target | None = None, old_index: int | None = None, starred: bool | None = None) -> None:
         nonlocal entries, selected
@@ -433,6 +442,9 @@ def run(stdscr: curses.window) -> None:
 
     try:
         while True:
+            if status_deadline is not None and time.monotonic() >= status_deadline:
+                status = ""
+                status_deadline = None
             current_entry = entries[selected] if entries and selected < len(entries) else None
             current_selection = current_entry.target if current_entry else None
             if poller.tick():
@@ -478,13 +490,14 @@ def run(stdscr: curses.window) -> None:
                     filtering = False
                     curses.curs_set(0)
                     rebuild()
-                    status = "cancelled" if key == 3 else "filter cleared"
+                    show_status("cancelled" if key == 3 else "filter cleared")
                     continue
                 new_filter = _filter_key(filter_text, key)
                 if new_filter is not None:
                     filter_text = new_filter
                     rebuild(current_selection, selected)
-                    status = "filtering" if filter_text else "filter cleared"
+                    if not filter_text:
+                        show_status("filter cleared")
                     continue
             selectable = _selectable(entries)
             if key == ord("q"):
@@ -495,21 +508,20 @@ def run(stdscr: curses.window) -> None:
                 selected = selectable[(selectable.index(selected) - 1) % len(selectable)]
             elif key == ord("r"):
                 poller.refresh()
-                status = "refreshing"
+                show_status("refreshing")
             elif key == ord("/"):
                 filtering = True
                 curses.curs_set(1)
-                status = "filtering"
             elif key == ord("?"):
                 try:
                     show_help()
-                    status = "help opened"
+                    show_status("help opened")
                 except SystemExit as e:
-                    status = str(e)
+                    show_status(str(e))
             elif key == ord("f"):
                 entry = entries[selected]
                 if not entry.target:
-                    status = "select session to star"
+                    show_status("select session to star")
                     continue
                 target = entry.target
                 was_starred_copy = entry.starred and entry.label == target.format()
@@ -517,55 +529,55 @@ def run(stdscr: curses.window) -> None:
                     favorites.remove(target)
                     save_stars(favorites)
                     rebuild(target if not entry.unavailable_favorite else None, selected, False if was_starred_copy else None)
-                    status = f"unstarred {target.format()}"
+                    show_status(f"unstarred {target.format()}")
                 else:
                     favorites.add(target)
                     save_stars(favorites)
                     rebuild(target, starred=True)
-                    status = f"starred {target.format()}"
+                    show_status(f"starred {target.format()}")
             elif key in (10, 13, curses.KEY_ENTER):
                 entry = entries[selected]
                 try:
                     if entry.unavailable_favorite:
-                        status = f"unavailable {entry.target.format()}"
+                        show_status(f"unavailable {entry.target.format()}")
                     elif entry.target:
                         switch(entry.target)
                         filter_text = ""
                         filtering = False
                         curses.curs_set(0)
                         rebuild(entry.target)
-                        status = f"switched {entry.target.format()}"
+                        show_status(f"switched {entry.target.format()}")
                     elif entry.kind == "create":
                         curses.curs_set(1)
                         name = _session_prompt(stdscr)
                         curses.curs_set(0)
                         if not name:
-                            status = "cancelled"
+                            show_status("cancelled")
                             continue
                         create_local(name) if entry.host == "" else create_remote(validate_name(entry.host or "", "host"), name)
                         local[:] = local_sessions()
                         poller.refresh()
                         rebuild()
-                        status = f"created {name}"
+                        show_status(f"created {name}")
                 except SystemExit as e:
-                    status = str(e)
+                    show_status(str(e))
             elif key == ord("x"):
                 entry = entries[selected]
                 if not entry.target:
-                    status = "select session to kill"
+                    show_status("select session to kill")
                     continue
                 if entry.unavailable_favorite:
-                    status = f"unavailable {entry.target.format()}"
+                    show_status(f"unavailable {entry.target.format()}")
                     continue
                 answer = _read_key(stdscr, f"kill {entry.target.format()}? y/N")
                 if answer != ord("y"):
-                    status = "cancelled"
+                    show_status("cancelled")
                     continue
                 kill(entry.target)
                 local[:] = local_sessions()
                 poller.refresh()
                 rebuild(old_index=selected)
-                status = f"killed {entry.target.format()}"
+                show_status(f"killed {entry.target.format()}")
             elif key == ord("n"):
                 entry = entries[selected]
                 host = entry.host if entry.kind == "create" else (entry.target.host if entry.target and entry.target.kind == "ssh" else "")
@@ -574,15 +586,15 @@ def run(stdscr: curses.window) -> None:
                     name = _session_prompt(stdscr)
                     curses.curs_set(0)
                     if not name:
-                        status = "cancelled"
+                        show_status("cancelled")
                         continue
                     create_local(name) if host == "" else create_remote(validate_name(host or "", "host"), name)
                     local[:] = local_sessions()
                     poller.refresh()
                     rebuild()
-                    status = f"created {name}"
+                    show_status(f"created {name}")
                 except SystemExit as e:
-                    status = str(e)
+                    show_status(str(e))
     finally:
         poller.close()
 
