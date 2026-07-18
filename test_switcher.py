@@ -37,7 +37,7 @@ class SwitcherCommandTest(unittest.TestCase):
             ],
         )
 
-    def test_show_help_respawns_right_pane(self):
+    def test_show_help_respawns_right_pane_without_leaving_sidebar(self):
         calls = []
 
         with (
@@ -47,8 +47,8 @@ class SwitcherCommandTest(unittest.TestCase):
         ):
             show_help()
 
+        self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][:4], ("respawn-pane", "-k", "-t", "%2"))
-        self.assertEqual(calls[1], ("select-pane", "-t", "%2"))
         self.assertIn("mtmux cockpit", calls[0][4])
         self.assertIn("C-x s  focus/open sidebar", calls[0][4])
         load_prefix.assert_called_once_with()
