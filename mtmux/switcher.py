@@ -43,7 +43,6 @@ def switch(target: Target) -> None:
 def show_help() -> None:
     pane = _pane()
     tmux.tmux("respawn-pane", "-k", "-t", pane, HELP)
-    tmux.tmux("select-pane", "-t", pane)
 
 
 def kill(target: Target) -> None:
