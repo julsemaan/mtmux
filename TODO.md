@@ -2,4 +2,5 @@
 - Allow customizing via config the size of the left pane
 - Bottom bar needs to be more obvious with information, right now it is not very visible and doesn't grab attention
 - Use emojis to represent local vs SSH
+- Find a solution to the long names in the starred section. Maybe multi-line for each entry?
 - Top header sometimes says the wrong amount of sessions. Ex: Says `55 sessions` instead of `5 sessions`
