@@ -1,0 +1,8 @@
+[project]
+name = "mtmux"
+version = "0.1.0"
+description = "Outer tmux cockpit for local and SSH tmux sessions"
+requires-python = ">=3.11"
+
+[project.scripts]
+mtmux = "mtmux.__main__:main"

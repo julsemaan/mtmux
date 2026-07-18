@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: mtmux
+Version: 0.1.0
+Summary: Outer tmux cockpit for local and SSH tmux sessions
+Requires-Python: >=3.11

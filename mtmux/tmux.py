@@ -1,0 +1,25 @@
+from __future__ import annotations
+
+from pathlib import Path
+import subprocess
+
+SOCKET = "mtmux"
+SESSION = "mtmux"
+WINDOW = "cockpit"
+
+
+def tmux(*args: str, check: bool = True, capture: bool = False, config: Path | None = None) -> subprocess.CompletedProcess[str]:
+    cmd = ["tmux", "-L", SOCKET]
+    if config is not None:
+        cmd += ["-f", str(config)]
+    cmd += list(args)
+    return subprocess.run(cmd, text=True, capture_output=capture, check=check)
+
+
+def out(*args: str, check: bool = True) -> str:
+    proc = tmux(*args, check=check, capture=True)
+    return proc.stdout.strip()
+
+
+def has_pane(pane: str) -> bool:
+    return tmux("has-session", "-t", pane, check=False).returncode == 0

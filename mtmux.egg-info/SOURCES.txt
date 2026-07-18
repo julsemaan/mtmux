@@ -1,0 +1,16 @@
+README.md
+pyproject.toml
+mtmux/__init__.py
+mtmux/__main__.py
+mtmux/cockpit.py
+mtmux/config.py
+mtmux/discovery.py
+mtmux/names.py
+mtmux/sidebar.py
+mtmux/switcher.py
+mtmux/tmux.py
+mtmux.egg-info/PKG-INFO
+mtmux.egg-info/SOURCES.txt
+mtmux.egg-info/dependency_links.txt
+mtmux.egg-info/entry_points.txt
+mtmux.egg-info/top_level.txt

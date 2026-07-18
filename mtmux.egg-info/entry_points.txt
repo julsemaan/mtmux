@@ -1,0 +1,2 @@
+[console_scripts]
+mtmux = mtmux.__main__:main
