@@ -12,6 +12,7 @@ from mtmux.sidebar import (
     _fade,
     _entries,
     _entry_at_row,
+    _entry_lines,
     _filter_key,
     _mouse_mask,
     _pane_active,
@@ -524,7 +525,8 @@ class SidebarDrawTest(unittest.TestCase):
 
         entries = _entries("", local, remote, favorites)
 
-        self.assertEqual([entry.label for entry in entries[:4]], ["STARRED", "local:work", "ssh:dev:notes", "ssh:off:gone"])
+        self.assertEqual([entry.label for entry in entries[:4]], ["STARRED", "work", "notes", "gone"])
+        self.assertTrue(all(entry.starred_section for entry in entries[1:4]))
         self.assertTrue(entries[3].unavailable_favorite)
         self.assertEqual(sum(entry.target == Target("local", "work") for entry in entries), 2)
         self.assertTrue(all(entry.starred for entry in entries if entry.target == Target("local", "work")))
@@ -557,12 +559,67 @@ class SidebarDrawTest(unittest.TestCase):
     def test_title_excludes_star_duplicates_and_stale_favorites(self):
         screen = FakeScreen(size=(5, 40))
         target = Target("local", "work")
-        entries = [Entry("local:work", "session", target, starred=True), Entry("work", "session", target, starred=True), Entry("local:gone", "session", Target("local", "gone"), starred=True, unavailable_favorite=True)]
+        entries = [Entry("work", "session", target, starred=True, starred_section=True), Entry("work", "session", target, starred=True), Entry("gone", "session", Target("local", "gone"), starred=True, unavailable_favorite=True, starred_section=True)]
 
         _draw(screen, entries, 0, "ok", "")
 
         title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
         self.assertTrue(title[3].endswith("1 session"))
+
+    def test_starred_entries_render_session_then_source_without_raw_targets(self):
+        local = Entry("dashboard", "session", Target("local", "dashboard"), host="laptop", starred=True, starred_section=True)
+        remote = Entry("auth", "session", Target("ssh", "auth", "dev"), host="dev", starred=True, starred_section=True)
+
+        with patch("mtmux.sidebar._ascii", return_value=False):
+            self.assertEqual(_entry_lines(local, True, set(), None, 30), ["› ✱ dashboard", "    💻 laptop"])
+            self.assertEqual(_entry_lines(remote, False, set(), None, 30), ["  ✱ auth", "    🔐 dev"])
+
+        self.assertNotIn("local:", "".join(_entry_lines(local, True, set(), None, 30)))
+        self.assertNotIn("ssh:", "".join(_entry_lines(remote, False, set(), None, 30)))
+
+    def test_starred_lines_truncate_session_and_metadata_and_keep_bell(self):
+        entry = Entry("s" * 64, "session", Target("ssh", "s" * 64, "host"), host="h" * 64, starred=True, starred_section=True)
+
+        with patch("mtmux.sidebar._ascii", return_value=False):
+            lines = _entry_lines(entry, False, {entry.target.format()}, None, 20)
+
+        self.assertEqual(len(lines), 2)
+        self.assertTrue(lines[0].endswith("… 🔔"))
+        self.assertTrue(lines[1].endswith("…"))
+        self.assertTrue(all(len(line) <= 20 for line in lines))
+
+    def test_ascii_starred_metadata_and_ellipsis_are_ascii_only(self):
+        entry = Entry("session-name", "session", Target("ssh", "session-name", "long-host"), host="long-host", starred=True, starred_section=True, unavailable_favorite=True)
+
+        with patch("mtmux.sidebar._ascii", return_value=True):
+            lines = _entry_lines(entry, True, set(), None, 24)
+
+        self.assertTrue(lines[0].isascii())
+        self.assertTrue(lines[1].isascii())
+        self.assertIn("SSH", lines[1])
+        self.assertIn("unavailable", lines[1])
+        self.assertIn("...", "".join(lines))
+
+    def test_selected_starred_styles_both_rows_and_both_rows_map_to_entry(self):
+        entry = Entry("work", "session", Target("local", "work"), host="laptop", starred=True, starred_section=True)
+        screen = FakeScreen(size=(6, 30))
+
+        with patch.dict("mtmux.sidebar._COLOR", {"selected": 123}, clear=True):
+            _draw(screen, [entry], 0, "ok", "")
+
+        rows = [call for call in screen.calls if call[0] == "addnstr" and call[1] in (1, 2)]
+        self.assertEqual([call[5] for call in rows], [123, 123])
+        self.assertEqual(_entry_at_row([entry], 0, 1, 6, 1), 0)
+        self.assertEqual(_entry_at_row([entry], 0, 2, 6, 1), 0)
+
+    def test_viewport_budgets_two_rows_for_selected_starred_entry(self):
+        entries = [Entry("STARRED", "header"), Entry("work", "session", Target("local", "work"), starred_section=True), Entry("LOCAL", "header")]
+
+        start, end = _viewport(entries, 1, 6)
+
+        self.assertLessEqual(start, 1)
+        self.assertGreater(end, 1)
+        self.assertLessEqual(sum(2 if entry.starred_section else 1 for entry in entries[start:end]) + int(start > 0) + int(end < len(entries)), 4)
 
     def test_rendered_star_replaces_session_icon(self):
         target = Target("local", "work")
