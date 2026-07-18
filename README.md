@@ -48,6 +48,28 @@ To restore old prefix, set `prefix = "C-g"` and rerun `mtmux cockpit`.
 
 Hosts are SSH aliases only. Put users, ports, keys, proxies, IPv6, etc. in `~/.ssh/config`.
 
+For fast background discovery, let OpenSSH reuse one authenticated transport per host:
+
+```sshconfig
+Host prod dev
+    ControlMaster auto
+    ControlPersist 10m
+    ControlPath ~/.ssh/mtmux-%C
+```
+
+`ControlMaster` makes first SSH process own shared connection. `ControlPersist` keeps it alive after command exits. Later discovery polls, switches, creates, and kills open logical channels without repeating TCP setup, key exchange, or authentication. Keep control socket in directory writable only by your user.
+
+Check multiplexing and compare first/subsequent connection times:
+
+```sh
+ssh prod true
+ssh -O check prod
+time ssh prod true
+time ssh prod true
+```
+
+No mtmux multiplexing option exists; SSH aliases remain source of truth.
+
 Names must match:
 
 ```text
