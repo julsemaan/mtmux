@@ -201,12 +201,13 @@ class SidebarDrawTest(unittest.TestCase):
         title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
         self.assertTrue(title[3].startswith(" MTMUX"))
 
-    def test_draw_forces_full_repaint_so_shrinking_session_count_does_not_leave_digits(self):
+    def test_draw_erases_without_forcing_full_repaint(self):
         screen = FakeScreen(size=(5, 40))
 
         _draw(screen, [], 0, "ok", "")
 
-        self.assertEqual(screen.calls[0], ("clear",))
+        self.assertEqual(screen.calls[0], ("erase",))
+        self.assertNotIn(("clear",), screen.calls)
 
     def test_normal_title_shows_brand_and_session_count(self):
         screen = FakeScreen(size=(5, 40))
