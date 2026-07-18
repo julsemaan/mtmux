@@ -9,13 +9,13 @@ class SwitcherCommandTest(unittest.TestCase):
     def test_local_switch_unsets_tmux(self):
         self.assertEqual(
             _command(Target("local", "work")),
-            "env -u TMUX tmux new-session -A -s work",
+            "env -u TMUX tmux -T clipboard new-session -A -s work",
         )
 
     def test_remote_switch_uses_ssh(self):
         self.assertEqual(
             _command(Target("ssh", "work", "dev")),
-            "ssh -t dev 'tmux new-session -A -s work'",
+            "ssh -t dev 'tmux -T clipboard new-session -A -s work'",
         )
 
     def test_switch_selects_right_pane_after_respawn(self):
@@ -32,7 +32,7 @@ class SwitcherCommandTest(unittest.TestCase):
             [
                 ("set-option", "-t", "mtmux", "@mtmux_current_target", "local:work"),
                 ("set-option", "-u", "-t", "mtmux", "@mtmux_bell_target"),
-                ("respawn-pane", "-k", "-t", "%2", "env -u TMUX tmux new-session -A -s work"),
+                ("respawn-pane", "-k", "-t", "%2", "env -u TMUX tmux -T clipboard new-session -A -s work"),
                 ("select-pane", "-t", "%2"),
             ],
         )
