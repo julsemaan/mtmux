@@ -380,7 +380,7 @@ def _draw(
     current_target: Target | None = None,
     dimmed: bool = False,
 ) -> int:
-    stdscr.erase()
+    stdscr.clear()
     h, w = stdscr.getmaxyx()
     cursor = _draw_title(stdscr, w, entries, filter_text, filtering, dimmed)
     footer_height = _draw_footer(stdscr, h, w, status, filtering, dimmed)

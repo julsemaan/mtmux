@@ -35,6 +35,9 @@ class FakeScreen:
     def erase(self):
         self.calls.append(("erase",))
 
+    def clear(self):
+        self.calls.append(("clear",))
+
     def getmaxyx(self):
         return self.size
 
@@ -197,6 +200,13 @@ class SidebarDrawTest(unittest.TestCase):
             _draw(screen, [], 0, "ok", "")
         title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
         self.assertTrue(title[3].startswith(" MTMUX"))
+
+    def test_draw_forces_full_repaint_so_shrinking_session_count_does_not_leave_digits(self):
+        screen = FakeScreen(size=(5, 40))
+
+        _draw(screen, [], 0, "ok", "")
+
+        self.assertEqual(screen.calls[0], ("clear",))
 
     def test_normal_title_shows_brand_and_session_count(self):
         screen = FakeScreen(size=(5, 40))
