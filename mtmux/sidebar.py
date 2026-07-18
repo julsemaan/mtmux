@@ -64,6 +64,15 @@ def _color(name: str) -> int:
     return _COLOR.get(name, 0)
 
 
+def _fade(attr: int) -> int:
+    return (attr & ~curses.A_COLOR) | curses.A_DIM
+
+
+def _pane_active() -> bool:
+    pane = os.environ.get("TMUX_PANE")
+    return not pane or tmux.out("display-message", "-p", "-t", pane, "#{pane_active}", check=False) == "1"
+
+
 def _entries(filter_text: str = "") -> list[Entry]:
     needle = filter_text.lower()
     items = discover()
@@ -202,12 +211,13 @@ def _viewport(entries: list[Entry], selected: int, height: int) -> tuple[int, in
     return start, end
 
 
-def _draw_title(stdscr: curses.window, w: int, filter_text: str) -> None:
+def _draw_title(stdscr: curses.window, w: int, filter_text: str, dimmed: bool = False) -> None:
     suffix = f"filter: {filter_text}" if filter_text else ""
     title = " mtmux"
     if suffix:
         title = f"{title:<30}{suffix}"
-    stdscr.addnstr(0, 0, title.ljust(w - 1), w - 1, _color("title") or curses.A_BOLD)
+    attr = _color("title") or curses.A_BOLD
+    stdscr.addnstr(0, 0, title.ljust(w - 1), w - 1, _fade(attr) if dimmed else attr)
 
 
 def _entry_text(entry: Entry, selected: bool, bell_targets: set[str], current_target: Target | None) -> str:
@@ -226,20 +236,22 @@ def _entry_text(entry: Entry, selected: bool, bell_targets: set[str], current_ta
     return f"  {icon['unavailable']} {entry.label}"
 
 
-def _entry_attr(entry: Entry, selected: bool) -> int:
+def _entry_attr(entry: Entry, selected: bool, dimmed: bool = False) -> int:
     if selected:
-        return _color("selected") or curses.A_REVERSE
-    if entry.kind == "header":
-        return curses.A_BOLD
-    if entry.kind == "session" and entry.target and entry.target.kind == "ssh":
-        return _color("remote")
-    if entry.kind == "session":
-        return _color("local")
-    if entry.kind == "create":
-        return _color("create")
-    if entry.kind == "unavailable":
-        return _color("unavailable") or curses.A_DIM
-    return 0
+        attr = _color("selected") or curses.A_REVERSE
+    elif entry.kind == "header":
+        attr = curses.A_BOLD
+    elif entry.kind == "session" and entry.target and entry.target.kind == "ssh":
+        attr = _color("remote")
+    elif entry.kind == "session":
+        attr = _color("local")
+    elif entry.kind == "create":
+        attr = _color("create")
+    elif entry.kind == "unavailable":
+        attr = _color("unavailable") or curses.A_DIM
+    else:
+        attr = 0
+    return _fade(attr) if dimmed else attr
 
 
 def _draw_entries(
@@ -250,11 +262,13 @@ def _draw_entries(
     w: int,
     bell_targets: set[str],
     current_target: Target | None,
+    dimmed: bool = False,
 ) -> None:
     start, end = _viewport(entries, selected, h)
     row = 1
     if start:
-        stdscr.addnstr(row, 0, "↑ more", w - 1, _color("hints") or curses.A_DIM)
+        attr = _color("hints") or curses.A_DIM
+        stdscr.addnstr(row, 0, "↑ more", w - 1, _fade(attr) if dimmed else attr)
         row += 1
     for idx in range(start, end):
         if row >= h - 1:
@@ -265,18 +279,20 @@ def _draw_entries(
             0,
             _entry_text(entry, idx == selected, bell_targets, current_target),
             w - 1,
-            _entry_attr(entry, idx == selected),
+            _entry_attr(entry, idx == selected, dimmed),
         )
         row += 1
     if end < len(entries) and row < h - 1:
-        stdscr.addnstr(row, 0, "↓ more", w - 1, _color("hints") or curses.A_DIM)
+        attr = _color("hints") or curses.A_DIM
+        stdscr.addnstr(row, 0, "↓ more", w - 1, _fade(attr) if dimmed else attr)
 
 
-def _draw_footer(stdscr: curses.window, h: int, w: int, status: str, filtering: bool = False) -> None:
+def _draw_footer(stdscr: curses.window, h: int, w: int, status: str, filtering: bool = False, dimmed: bool = False) -> None:
     footer = "type to filter  esc clear  backspace edit  ↵ switch" if filtering and not _ascii() else status
     if filtering and _ascii():
         footer = "type to filter  esc clear  backspace edit  Enter switch"
-    stdscr.addnstr(h - 1, 0, footer[: w - 1].ljust(w - 1), w - 1, _color("hints"))
+    attr = _color("hints")
+    stdscr.addnstr(h - 1, 0, footer[: w - 1].ljust(w - 1), w - 1, _fade(attr) if dimmed else attr)
 
 
 def _draw(
@@ -288,12 +304,13 @@ def _draw(
     filtering: bool = False,
     bell_targets: set[str] | None = None,
     current_target: Target | None = None,
+    dimmed: bool = False,
 ) -> None:
     stdscr.erase()
     h, w = stdscr.getmaxyx()
-    _draw_title(stdscr, w, filter_text)
-    _draw_entries(stdscr, entries, selected, h, w, bell_targets or set(), current_target)
-    _draw_footer(stdscr, h, w, status, filtering)
+    _draw_title(stdscr, w, filter_text, dimmed)
+    _draw_entries(stdscr, entries, selected, h, w, bell_targets or set(), current_target, dimmed)
+    _draw_footer(stdscr, h, w, status, filtering, dimmed)
     stdscr.refresh()
 
 
@@ -325,7 +342,7 @@ def run(stdscr: curses.window) -> None:
         if visible_bells - rang_bells:
             curses.beep()
         rang_bells = visible_bells
-        _draw(stdscr, entries, selected, status, filter_text, filtering, bell_targets, current_target)
+        _draw(stdscr, entries, selected, status, filter_text, filtering, bell_targets, current_target, not _pane_active())
         key = stdscr.getch()
         if key == -1:
             entries = _entries(filter_text)

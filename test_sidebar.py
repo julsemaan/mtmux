@@ -1,3 +1,4 @@
+import curses
 import unittest
 from unittest.mock import patch
 
@@ -7,7 +8,9 @@ from mtmux.sidebar import (
     _bell_targets,
     _current_target,
     _draw,
+    _fade,
     _filter_key,
+    _pane_active,
     _prompt,
     _read_key,
     _selected_before,
@@ -36,6 +39,12 @@ class FakeScreen:
     def addstr(self, *args):
         self.calls.append(("addstr", *args))
 
+    def attron(self, *args):
+        self.calls.append(("attron", *args))
+
+    def attroff(self, *args):
+        self.calls.append(("attroff", *args))
+
     def getch(self):
         self.calls.append(("getch",))
         if self.keys:
@@ -50,6 +59,21 @@ class FakeScreen:
 
 
 class SidebarDrawTest(unittest.TestCase):
+    def test_inactive_sidebar_dims_all_rendered_colors(self):
+        faded = _fade(curses.A_COLOR | curses.A_BOLD)
+
+        self.assertEqual(faded & curses.A_COLOR, 0)
+        self.assertTrue(faded & curses.A_DIM)
+        self.assertTrue(faded & curses.A_BOLD)
+
+    def test_pane_active_reads_current_tmux_pane_state(self):
+        with patch.dict("mtmux.sidebar.os.environ", {"TMUX_PANE": "%1"}), patch(
+            "mtmux.sidebar.tmux.out", return_value="1"
+        ) as out:
+            self.assertTrue(_pane_active())
+
+        out.assert_called_once_with("display-message", "-p", "-t", "%1", "#{pane_active}", check=False)
+
     def test_status_line_pads_shorter_message(self):
         screen = FakeScreen()
 
