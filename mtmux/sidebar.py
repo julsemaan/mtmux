@@ -45,7 +45,7 @@ def _init_colors() -> None:
         curses.start_color()
         curses.use_default_colors()
         pairs = {
-            "title": (1, curses.COLOR_CYAN, -1, curses.A_BOLD),
+            "title": (1, curses.COLOR_BLACK, curses.COLOR_CYAN, curses.A_BOLD),
             "selected": (2, curses.COLOR_BLACK, curses.COLOR_CYAN, 0),
             "local": (3, curses.COLOR_GREEN, -1, 0),
             "remote": (4, curses.COLOR_BLUE, -1, 0),
@@ -212,11 +212,24 @@ def _viewport(entries: list[Entry], selected: int, height: int) -> tuple[int, in
     return start, end
 
 
-def _draw_title(stdscr: curses.window, w: int, filter_text: str, dimmed: bool = False) -> None:
-    suffix = f"filter: {filter_text}" if filter_text else ""
-    title = f" {suffix}" if suffix else " mtmux"
-    attr = _color("title") or curses.A_BOLD
-    stdscr.addnstr(0, 0, title.ljust(w - 1), w - 1, _fade(attr) if dimmed else attr)
+def _draw_title(
+    stdscr: curses.window,
+    w: int,
+    entries: list[Entry],
+    filter_text: str,
+    filtering: bool = False,
+    dimmed: bool = False,
+) -> int:
+    width = max(1, w - 1)
+    count = sum(entry.kind == "session" for entry in entries)
+    brand = " MTMUX" if _ascii() else " 🖥️ MTMUX"
+    left = f"{brand} / {filter_text}" if filtering else brand
+    noun = ("match" if count == 1 else "matches") if filtering else ("session" if count == 1 else "sessions")
+    right = f"{count} {noun}"
+    title = f"{left}{right.rjust(width - len(left))}" if len(left) + len(right) < width else left
+    attr = _color("title") or (curses.A_BOLD | curses.A_REVERSE)
+    stdscr.addnstr(0, 0, title[:width].ljust(width), width, _fade(attr) if dimmed else attr)
+    return min(width - 1, len(left))
 
 
 def _entry_text(entry: Entry, selected: bool, bell_targets: set[str], current_target: Target | None) -> str:
@@ -318,7 +331,7 @@ def _draw(
 ) -> None:
     stdscr.erase()
     h, w = stdscr.getmaxyx()
-    _draw_title(stdscr, w, filter_text, dimmed)
+    cursor = _draw_title(stdscr, w, entries, filter_text, filtering, dimmed)
     footer_height = _draw_footer(stdscr, h, w, status, filtering, dimmed)
     _draw_entries(
         stdscr,
@@ -331,7 +344,7 @@ def _draw(
         dimmed,
     )
     if filtering:
-        stdscr.move(0, min(w - 2, len(f" filter: {filter_text}")))
+        stdscr.move(0, cursor)
     stdscr.refresh()
 
 

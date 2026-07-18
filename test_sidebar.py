@@ -139,14 +139,97 @@ class SidebarDrawTest(unittest.TestCase):
         self.assertEqual(screen.calls[0], ("timeout", -1))
         self.assertEqual(screen.calls[-1], ("timeout", 500))
 
-    def test_filter_text_and_cursor_are_in_title(self):
+    def test_title_adds_terminal_emoji_with_ascii_fallback(self):
+        screen = FakeScreen(size=(5, 40))
+
+        with patch("mtmux.sidebar._ascii", return_value=False):
+            _draw(screen, [], 0, "ok", "")
+        title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
+        self.assertTrue(title[3].startswith(" 🖥️ MTMUX"))
+
+        screen = FakeScreen(size=(5, 40))
+        with patch("mtmux.sidebar._ascii", return_value=True):
+            _draw(screen, [], 0, "ok", "")
+        title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
+        self.assertTrue(title[3].startswith(" MTMUX"))
+
+    def test_normal_title_shows_brand_and_session_count(self):
+        screen = FakeScreen(size=(5, 40))
+        entries = [
+            Entry("LOCAL", "header"),
+            Entry("work", "session", Target("local", "work")),
+            Entry("notes", "session", Target("local", "notes")),
+            Entry("new local", "create", host=""),
+        ]
+
+        _draw(screen, entries, 1, "ok", "")
+
+        title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
+        self.assertEqual(title[3], " 🖥️ MTMUX" + " " * 20 + "2 sessions")
+
+    def test_title_count_uses_singular_labels(self):
+        screen = FakeScreen(size=(5, 40))
+        entries = [Entry("work", "session", Target("local", "work"))]
+
+        _draw(screen, entries, 0, "ok", "")
+        normal = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
+        self.assertTrue(normal[3].endswith("1 session"))
+
+        screen = FakeScreen(size=(5, 40))
+        _draw(screen, entries, 0, "filtering", "work", filtering=True)
+        filtering = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
+        self.assertEqual(filtering[3].rstrip(), " 🖥️ MTMUX / work                1 match")
+
+    def test_filter_keeps_brand_query_count_and_cursor(self):
+        screen = FakeScreen(size=(5, 40))
+        entries = [Entry("work", "session", Target("local", "work"))]
+
+        _draw(screen, entries, 0, "filtering", "work", filtering=True)
+
+        title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
+        self.assertEqual(title[3].rstrip(), " 🖥️ MTMUX / work                1 match")
+        self.assertIn(("move", 0, len(" 🖥️ MTMUX / work")), screen.calls)
+
+    def test_empty_filter_has_visible_input_position(self):
         screen = FakeScreen(size=(5, 20))
 
-        _draw(screen, [], 0, "filtering", "work", filtering=True)
+        _draw(screen, [], 0, "filtering", "", filtering=True)
 
-        call = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
-        self.assertIn("filter: work", call[3][:call[4]])
-        self.assertIn(("move", 0, len(" filter: work")), screen.calls)
+        title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
+        self.assertTrue(title[3].startswith(" 🖥️ MTMUX / "))
+        self.assertIn(("move", 0, len(" 🖥️ MTMUX / ")), screen.calls)
+
+    def test_narrow_filter_drops_count_before_clipping_query(self):
+        screen = FakeScreen(size=(5, 16))
+
+        _draw(screen, [Entry("work", "session", Target("local", "work"))], 0, "filtering", "abcdefghij", filtering=True)
+
+        title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
+        self.assertEqual(title[3], " 🖥️ MTMUX / abc")
+        self.assertNotIn("match", title[3])
+        cursor = next(call for call in screen.calls if call[0] == "move")
+        self.assertEqual(cursor, ("move", 0, 14))
+        self.assertLessEqual(cursor[2], 14)
+
+    def test_title_uses_configured_style_and_dims_inactive_pane(self):
+        screen = FakeScreen(size=(5, 20))
+
+        with patch.dict("mtmux.sidebar._COLOR", {"title": 123}, clear=True):
+            _draw(screen, [], 0, "ok", "", dimmed=True)
+
+        title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
+        self.assertEqual(title[4], 19)
+        self.assertEqual(title[5], _fade(123))
+
+    def test_title_monochrome_fallback_is_bold_reverse_video(self):
+        screen = FakeScreen(size=(5, 20))
+
+        with patch.dict("mtmux.sidebar._COLOR", {}, clear=True):
+            _draw(screen, [], 0, "ok", "")
+
+        title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
+        self.assertTrue(title[5] & curses.A_BOLD)
+        self.assertTrue(title[5] & curses.A_REVERSE)
 
     def test_filter_key_updates_live_text(self):
         self.assertEqual(_filter_key("a", ord("b")), "ab")
