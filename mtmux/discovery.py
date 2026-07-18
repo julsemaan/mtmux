@@ -64,8 +64,6 @@ def _bell_sessions(text: str) -> set[str]:
 
 def local_bell_sessions() -> set[str]:
     env = _clean_env()
-    subprocess.run(["tmux", "set-window-option", "-g", "monitor-bell", "on"], text=True, capture_output=True, check=False, env=env)
-    subprocess.run(["tmux", "set-option", "-g", "bell-action", "any"], text=True, capture_output=True, check=False, env=env)
     proc = subprocess.run(["tmux", "list-windows", "-a", "-F", "#{session_name}:#{window_bell_flag}:#{window_flags}"], text=True, capture_output=True, env=env)
     if proc.returncode != 0:
         return set()
@@ -101,7 +99,7 @@ def remote_bell_sessions(host: str) -> set[str]:
         "-o", "ServerAliveInterval=1",
         "-o", "ServerAliveCountMax=1",
         host,
-        'tmux set-window-option -g monitor-bell on 2>/dev/null; tmux set-option -g bell-action any 2>/dev/null; tmux list-windows -a -F "#{session_name}:#{window_bell_flag}:#{window_flags}" 2>/dev/null || true',
+        'tmux list-windows -a -F "#{session_name}:#{window_bell_flag}:#{window_flags}" 2>/dev/null || true',
     ]
     try:
         proc = subprocess.run(cmd, text=True, capture_output=True, timeout=3)
