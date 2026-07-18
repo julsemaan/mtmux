@@ -5,7 +5,7 @@ from mtmux import cockpit
 
 
 class CockpitLayoutTest(unittest.TestCase):
-    def test_fix_layout_pins_sidebar_to_30_columns(self):
+    def test_fix_layout_pins_sidebar_to_40_columns(self):
         calls = []
 
         with patch.object(cockpit.tmux, "tmux", side_effect=lambda *args, **kwargs: calls.append(args)):
@@ -14,7 +14,7 @@ class CockpitLayoutTest(unittest.TestCase):
         self.assertEqual(
             calls,
             [
-                ("set-window-option", "-t", cockpit.TARGET, "main-pane-width", "30"),
+                ("set-window-option", "-t", cockpit.TARGET, "main-pane-width", "40"),
                 ("select-pane", "-t", "%1"),
                 ("select-layout", "-t", cockpit.TARGET, "main-vertical"),
             ],
@@ -40,7 +40,7 @@ class CockpitLayoutTest(unittest.TestCase):
         with patch.object(cockpit.tmux, "tmux", side_effect=lambda *args, **kwargs: calls.append(args)):
             cockpit._install_layout_hooks("%1")
 
-        command = "set-window-option -t mtmux:cockpit main-pane-width 30 ; select-pane -t %1 ; select-layout -t mtmux:cockpit main-vertical"
+        command = "set-window-option -t mtmux:cockpit main-pane-width 40 ; select-pane -t %1 ; select-layout -t mtmux:cockpit main-vertical"
         self.assertEqual(
             calls,
             [

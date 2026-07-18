@@ -8,11 +8,11 @@ import sys
 from .config import ensure_config
 from . import tmux
 
-HELP = """printf 'Select a session from mtmux sidebar.\nFocus/open sidebar: C-g s\nOpen help: ?\nDetach cockpit: C-g d\nQuit sidebar only: q\nRestart sidebar: C-g s\n'; exec sh"""
+HELP = """printf 'mtmux cockpit\n\nNavigation\n  C-g s  focus/open sidebar\n  ?      open help\n  q      quit sidebar only\n\nSession actions\n  Enter  switch\n  n      new session\n  x      kill selected session\n  /      filter sessions\n  r      refresh\n\nRecovery\n  C-g d  detach cockpit\n  C-g s  restart/focus sidebar\n  Esc    cancel prompts/filter\n\nExamples\n  /work  filter sessions matching work\n  n      create local or remote session from selected group\n'; exec sh"""
 SIDEBAR = f"{shlex.quote(sys.executable)} -m mtmux sidebar"
 FOCUS_SIDEBAR = f"{shlex.quote(sys.executable)} -m mtmux focus-sidebar"
 TARGET = f"{tmux.SESSION}:{tmux.WINDOW}"
-SIDEBAR_WIDTH = "30"
+SIDEBAR_WIDTH = "40"
 
 
 def _option(name: str) -> str:
@@ -115,8 +115,8 @@ def _attach() -> int:
 def cockpit() -> int:
     ensure_config()
     width = shutil.get_terminal_size((80, 24)).columns
-    if width < 70:
-        print("Terminal too narrow for mtmux cockpit: need at least 70 columns.", file=sys.stderr)
+    if width < 90:
+        print("Terminal too narrow for mtmux cockpit: need at least 90 columns.", file=sys.stderr)
         return 2
     ensure_cockpit()
     return _attach()
