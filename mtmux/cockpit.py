@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import sys
 
@@ -8,7 +9,7 @@ from .config import ensure_config
 from . import tmux
 
 HELP = """printf 'Select a session from mtmux sidebar.\nDetach cockpit: C-g d\nQuit sidebar only: q\nRestart sidebar: mtmux cockpit\n'; exec sh"""
-SIDEBAR = "python -m mtmux sidebar"
+SIDEBAR = f"{shlex.quote(sys.executable)} -m mtmux sidebar"
 TARGET = f"{tmux.SESSION}:{tmux.WINDOW}"
 
 
@@ -64,6 +65,26 @@ def ensure_cockpit() -> None:
     _build()
 
 
+def _attach() -> int:
+    attach_cmd = "tmux -L mtmux attach -t mtmux:cockpit"
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        print(f"Cockpit ready. Attach from a real terminal: {attach_cmd}")
+        return 0
+    try:
+        tty = os.ttyname(0)
+    except OSError:
+        tty = ""
+    if tty == "/dev/tty":
+        print(f"Cockpit ready. Current fd is /dev/tty; tmux refuses it. Run: {attach_cmd}")
+        return 0
+    cmd = ["tmux", "-L", tmux.SOCKET, "attach-session", "-t", TARGET]
+    if shutil.which("script"):
+        shell_cmd = " ".join(shlex.quote(part) for part in cmd)
+        os.execvp("script", ["script", "-q", "-c", shell_cmd, "/dev/null"])
+    os.execvp("tmux", cmd)
+    return 0
+
+
 def cockpit() -> int:
     ensure_config()
     width = shutil.get_terminal_size((80, 24)).columns
@@ -71,11 +92,7 @@ def cockpit() -> int:
         print("Terminal too narrow for mtmux cockpit: need at least 70 columns.", file=sys.stderr)
         return 2
     ensure_cockpit()
-    if not sys.stdin.isatty():
-        print("Cockpit ready. Attach: tmux -L mtmux attach -t mtmux:cockpit")
-        return 0
-    os.execvp("tmux", ["tmux", "-L", tmux.SOCKET, "attach", "-t", TARGET])
-    return 0
+    return _attach()
 
 
 def right_pane() -> str | None:
