@@ -429,5 +429,9 @@ def run(stdscr: curses.window) -> None:
 
 
 def main() -> int:
-    curses.wrapper(run)
-    return 0
+    while True:
+        try:
+            curses.wrapper(run)
+            return 0
+        except KeyboardInterrupt:
+            pass
