@@ -60,6 +60,12 @@ def _install_bell_hook() -> None:
     tmux.tmux("set-hook", "-t", tmux.SESSION, "alert-bell", "set-option -F -t mtmux @mtmux_bell_target '#{@mtmux_current_target}'")
 
 
+def _install_right_pane_reset(left: str, right: str) -> None:
+    tmux.tmux("set-option", "-p", "-t", right, "remain-on-exit", "on")
+    command = f"if-shell -F '#{{==:#{{hook_pane}},{right}}}' {{ set-option -u -t {tmux.SESSION} @mtmux_current_target ; set-option -u -t {tmux.SESSION} @mtmux_bell_target ; respawn-pane -k -t {right} {shlex.quote(HELP)} ; select-pane -t {left} }}"
+    tmux.tmux("set-hook", "-t", tmux.SESSION, "pane-died", command)
+
+
 def _build() -> None:
     _, wrapper = ensure_config()
     if _window_exists():
@@ -74,6 +80,7 @@ def _build() -> None:
     _set_markers(left, right)
     _install_layout_hooks(left)
     _install_bell_hook()
+    _install_right_pane_reset(left, right)
     tmux.tmux("set-option", "-t", tmux.SESSION, "prefix", "C-g")
     tmux.tmux("set-option", "-t", tmux.SESSION, "status", "off")
     tmux.tmux("set-option", "-t", tmux.SESSION, "mouse", "off")
@@ -83,9 +90,11 @@ def _build() -> None:
 def ensure_cockpit() -> None:
     if _valid():
         left = _option("@mtmux_sidebar_pane")
+        right = _option("@mtmux_right_pane")
         _fix_layout(left)
         _install_layout_hooks(left)
         _install_bell_hook()
+        _install_right_pane_reset(left, right)
         _install_bindings()
         return
     if _option("@mtmux_cockpit") == "1":
@@ -96,6 +105,7 @@ def ensure_cockpit() -> None:
             _set_markers(left, right)
             _install_layout_hooks(left)
             _install_bell_hook()
+            _install_right_pane_reset(left, right)
             _install_bindings()
             return
     _build()

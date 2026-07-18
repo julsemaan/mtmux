@@ -1,2 +1,4 @@
 - When pressing Ctrl-C as a way to end what I am doing (ex: filtering), it closes the left pane
 - Consider having the prefix Ctrl-M and ensure it is customizable
+- The bottom bar of mtmux doesn't deal properly with overflow (it is hidden)
+- The idle pane of mtmux cockpit should be faded and the separator between the panes should always be solid

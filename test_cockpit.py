@@ -28,12 +28,14 @@ class CockpitLayoutTest(unittest.TestCase):
             patch.object(cockpit, "_install_layout_hooks") as install_layout_hooks,
             patch.object(cockpit, "_install_bindings") as install_bindings,
             patch.object(cockpit, "_install_bell_hook") as install_bell_hook,
+            patch.object(cockpit, "_install_right_pane_reset") as install_right_pane_reset,
         ):
             cockpit.ensure_cockpit()
 
         fix_layout.assert_called_once_with("%1")
         install_layout_hooks.assert_called_once_with("%1")
         install_bell_hook.assert_called_once_with()
+        install_right_pane_reset.assert_called_once_with("%1", "%1")
         install_bindings.assert_called_once_with()
 
     def test_layout_hooks_repin_sidebar_after_attach_or_resize(self):
@@ -62,6 +64,21 @@ class CockpitLayoutTest(unittest.TestCase):
             [
                 ("bind-key", "C-g", "send-prefix"),
                 ("bind-key", "s", "run-shell", cockpit.FOCUS_SIDEBAR),
+            ],
+        )
+
+    def test_right_pane_reset_restores_startup_help_and_focuses_sidebar(self):
+        calls = []
+
+        with patch.object(cockpit.tmux, "tmux", side_effect=lambda *args, **kwargs: calls.append(args)):
+            cockpit._install_right_pane_reset("%1", "%2")
+
+        command = f"if-shell -F '#{{==:#{{hook_pane}},%2}}' {{ set-option -u -t mtmux @mtmux_current_target ; set-option -u -t mtmux @mtmux_bell_target ; respawn-pane -k -t %2 {cockpit.shlex.quote(cockpit.HELP)} ; select-pane -t %1 }}"
+        self.assertEqual(
+            calls,
+            [
+                ("set-option", "-p", "-t", "%2", "remain-on-exit", "on"),
+                ("set-hook", "-t", "mtmux", "pane-died", command),
             ],
         )
 
