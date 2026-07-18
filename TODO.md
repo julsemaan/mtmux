@@ -1,6 +1,4 @@
 - When filtering and pressing ctrl-c, it restarts mtmux and needs to fetch all the SSH tmux windows
 - Bottom bar needs to be more obvious with information, right now it is not very visible and doesn't grab attention
 - Find a solution to the long names in the starred section. Maybe multi-line for each entry?
-- Top header sometimes says the wrong amount of sessions. Ex: Says `55 sessions` instead of `5 sessions`
-- Clipboard is not working when using mouse in tmux
 - The left pane seems to frequently redraw and creates flashing in the terminal
