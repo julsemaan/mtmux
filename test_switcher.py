@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from mtmux.names import Target
-from mtmux.switcher import _command, show_help, switch
+from mtmux.switcher import _command, kill, show_help, switch
 
 
 class SwitcherCommandTest(unittest.TestCase):
@@ -47,6 +47,22 @@ class SwitcherCommandTest(unittest.TestCase):
         self.assertEqual(calls[0][:4], ("respawn-pane", "-k", "-t", "%2"))
         self.assertEqual(calls[1], ("select-pane", "-t", "%2"))
         self.assertIn("Select a session from mtmux sidebar", calls[0][4])
+
+    def test_kill_local_session(self):
+        calls = []
+
+        with patch("mtmux.switcher.subprocess.run", side_effect=lambda *args, **kwargs: calls.append((args, kwargs))):
+            kill(Target("local", "work"))
+
+        self.assertEqual(calls, [((("tmux", "kill-session", "-t", "work"),), {"check": False})])
+
+    def test_kill_remote_session(self):
+        calls = []
+
+        with patch("mtmux.switcher.subprocess.run", side_effect=lambda *args, **kwargs: calls.append((args, kwargs))):
+            kill(Target("ssh", "work", "dev"))
+
+        self.assertEqual(calls, [((("ssh", "dev", "tmux kill-session -t work"),), {"check": False})])
 
 
 if __name__ == "__main__":

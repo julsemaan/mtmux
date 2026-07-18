@@ -4,7 +4,7 @@ import curses
 
 from .discovery import discover, DiscoveryResult
 from .names import Target, validate_name
-from .switcher import create_local, create_remote, show_help, switch
+from .switcher import create_local, create_remote, kill, show_help, switch
 
 Entry = tuple[str, str | None, Target | None]  # label, new-host marker, target
 
@@ -51,6 +51,17 @@ def _prompt(stdscr: curses.window, prompt: str) -> str:
     return value
 
 
+def _read_key(stdscr: curses.window, prompt: str) -> int:
+    h, w = stdscr.getmaxyx()
+    stdscr.addnstr(h - 1, 0, " " * (w - 1), w - 1)
+    stdscr.addnstr(h - 1, 0, prompt, w - 1)
+    stdscr.refresh()
+    key = stdscr.getch()
+    stdscr.addnstr(h - 1, 0, " " * (w - 1), w - 1)
+    stdscr.refresh()
+    return key
+
+
 def _draw(stdscr: curses.window, entries: list[Entry], selected: int, status: str, filter_text: str) -> None:
     stdscr.erase()
     h, w = stdscr.getmaxyx()
@@ -70,7 +81,7 @@ def _draw(stdscr: curses.window, entries: list[Entry], selected: int, status: st
 def run(stdscr: curses.window) -> None:
     curses.curs_set(0)
     selected = 0
-    status = "Enter switch  n new  r refresh  / filter  ? help  q quit"
+    status = "Enter switch  n new  x kill  r refresh  / filter  ? help  q quit"
     filter_text = ""
     entries = _entries(filter_text)
     while True:
@@ -120,6 +131,19 @@ def run(stdscr: curses.window) -> None:
                     status = f"created {name}"
             except SystemExit as e:
                 status = str(e)
+        elif key == ord("x"):
+            _, _, target = entries[selected]
+            if not target:
+                status = "select session to kill"
+                continue
+            answer = _read_key(stdscr, f"kill {target.format()}? y/N")
+            if answer != ord("y"):
+                status = "kill cancelled"
+                continue
+            kill(target)
+            entries = _entries(filter_text)
+            selected = 0
+            status = f"killed {target.format()}"
         elif key == ord("n"):
             _, new_host, target = entries[selected]
             host = new_host if new_host is not None else (target.host if target and target.kind == "ssh" else "")

@@ -1,3 +1,1 @@
-- The bottom status bar of mtmux leaves characters from previous message (ex: create a new session named `b`, it shows `created bb`)
-- Should allow killing sessions from mtmux
 - Better way to get to the side bar. Some shortcut that will focus on it and open it if it is not open already

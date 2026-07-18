@@ -7,7 +7,7 @@ from .cockpit import cockpit
 from .config import ensure_config
 from .discovery import discover
 from .names import parse_target, validate_name
-from .switcher import create_local, create_remote, switch
+from .switcher import create_local, create_remote, kill, switch
 
 
 def placeholder(name: str) -> int:
@@ -25,6 +25,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     switch = sub.add_parser("switch", help="switch cockpit target")
     switch.add_argument("target")
+
+    kill_parser = sub.add_parser("kill", help="kill target tmux session")
+    kill_parser.add_argument("target")
 
     create = sub.add_parser("create", help="create target then switch")
     create_sub = create.add_subparsers(dest="create_kind", required=True)
@@ -55,6 +58,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "switch":
         switch(parse_target(args.target))
+        return 0
+    if args.command == "kill":
+        kill(parse_target(args.target))
         return 0
     if args.command == "create":
         if args.create_kind == "local":

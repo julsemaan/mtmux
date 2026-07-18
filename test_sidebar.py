@@ -1,12 +1,13 @@
 import unittest
 from unittest.mock import patch
 
-from mtmux.sidebar import _draw, _prompt
+from mtmux.sidebar import _draw, _prompt, _read_key
 
 
 class FakeScreen:
     def __init__(self):
         self.calls = []
+        self.key = ord("y")
 
     def erase(self):
         self.calls.append(("erase",))
@@ -23,6 +24,10 @@ class FakeScreen:
     def getstr(self, *args):
         self.calls.append(("getstr", *args))
         return b"b"
+
+    def getch(self):
+        self.calls.append(("getch",))
+        return self.key
 
     def move(self, *args):
         self.calls.append(("move", *args))
@@ -53,6 +58,14 @@ class SidebarDrawTest(unittest.TestCase):
         self.assertEqual(screen.calls[0], ("addnstr", 4, 0, " " * 19, 19))
         self.assertEqual(screen.calls[-2], ("addnstr", 4, 0, " " * 19, 19))
         self.assertEqual(screen.calls[-1], ("refresh",))
+
+    def test_read_key_gets_one_char_without_enter(self):
+        screen = FakeScreen()
+
+        self.assertEqual(_read_key(screen, "kill work? y/N"), ord("y"))
+
+        self.assertEqual(screen.calls[1], ("addnstr", 4, 0, "kill work? y/N", 19))
+        self.assertEqual(screen.calls[3], ("getch",))
 
 
 if __name__ == "__main__":

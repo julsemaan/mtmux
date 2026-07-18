@@ -37,6 +37,13 @@ def show_help() -> None:
     tmux.tmux("select-pane", "-t", pane)
 
 
+def kill(target: Target) -> None:
+    if target.kind == "local":
+        subprocess.run(("tmux", "kill-session", "-t", target.session), check=False)
+        return
+    subprocess.run(("ssh", target.host or "", f"tmux kill-session -t {shlex.quote(target.session)}"), check=False)
+
+
 def create_local(session: str) -> Target:
     from .names import Target
     subprocess.run(["tmux", "new-session", "-Ad", "-s", session], check=False)

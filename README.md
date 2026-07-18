@@ -54,6 +54,8 @@ mtmux switch local:<session>
 mtmux switch ssh:<host>:<session>
 mtmux create local <session>
 mtmux create ssh <host> <session>
+mtmux kill local:<session>
+mtmux kill ssh:<host>:<session>
 ```
 
 Switching uses outer tmux `respawn-pane` on right pane. Real tmux sessions stay alive.
@@ -62,6 +64,7 @@ Switching uses outer tmux `respawn-pane` on right pane. Real tmux sessions stay 
 
 - `Enter`: switch selected target
 - `n`: create session for selected group/target
+- `x`: kill selected session (asks first)
 - `r`: refresh discovery
 - `/`: filter
 - `?`: open help in right pane
