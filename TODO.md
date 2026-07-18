@@ -1,1 +1,0 @@
-- The bottom bar of mtmux doesn't deal properly with overflow (it is hidden)
