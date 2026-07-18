@@ -4,7 +4,8 @@ import os
 import shlex
 import subprocess
 
-from .cockpit import HELP, right_pane
+from .cockpit import help_command, right_pane
+from .config import load_prefix
 from .names import Target
 from . import tmux
 
@@ -42,8 +43,7 @@ def switch(target: Target) -> None:
 
 def show_help() -> None:
     pane = _pane()
-    tmux.tmux("respawn-pane", "-k", "-t", pane, HELP)
-    tmux.tmux("select-pane", "-t", pane)
+    tmux.tmux("respawn-pane", "-k", "-t", pane, help_command(load_prefix()))
 
 
 def kill(target: Target) -> None:

@@ -4,6 +4,7 @@ import curses
 import locale
 import os
 import re
+import textwrap
 from dataclasses import dataclass
 
 from . import tmux
@@ -65,7 +66,7 @@ def _color(name: str) -> int:
 
 
 def _fade(attr: int) -> int:
-    return (attr & ~curses.A_COLOR) | curses.A_DIM
+    return attr | curses.A_DIM
 
 
 def _pane_active() -> bool:
@@ -287,12 +288,23 @@ def _draw_entries(
         stdscr.addnstr(row, 0, "↓ more", w - 1, _fade(attr) if dimmed else attr)
 
 
-def _draw_footer(stdscr: curses.window, h: int, w: int, status: str, filtering: bool = False, dimmed: bool = False) -> None:
+def _draw_footer(
+    stdscr: curses.window,
+    h: int,
+    w: int,
+    status: str,
+    filtering: bool = False,
+    dimmed: bool = False,
+) -> int:
     footer = "type to filter  esc clear  backspace edit  ↵ switch" if filtering and not _ascii() else status
     if filtering and _ascii():
         footer = "type to filter  esc clear  backspace edit  Enter switch"
+    width = max(1, w - 1)
+    lines = textwrap.wrap(footer, width=width) or [""]
     attr = _color("hints")
-    stdscr.addnstr(h - 1, 0, footer[: w - 1].ljust(w - 1), w - 1, _fade(attr) if dimmed else attr)
+    for row, line in enumerate(lines, h - len(lines)):
+        stdscr.addnstr(row, 0, line.ljust(w - 1), w - 1, _fade(attr) if dimmed else attr)
+    return len(lines)
 
 
 def _draw(
@@ -309,8 +321,17 @@ def _draw(
     stdscr.erase()
     h, w = stdscr.getmaxyx()
     _draw_title(stdscr, w, filter_text, dimmed)
-    _draw_entries(stdscr, entries, selected, h, w, bell_targets or set(), current_target, dimmed)
-    _draw_footer(stdscr, h, w, status, filtering, dimmed)
+    footer_height = _draw_footer(stdscr, h, w, status, filtering, dimmed)
+    _draw_entries(
+        stdscr,
+        entries,
+        selected,
+        h - footer_height + 1,
+        w,
+        bell_targets or set(),
+        current_target,
+        dimmed,
+    )
     stdscr.refresh()
 
 
@@ -323,9 +344,9 @@ def run(stdscr: curses.window) -> None:
     _init_colors()
     curses.curs_set(0)
     selected = 0
-    status = "↵ switch  n new  x kill  / filter  r refresh  ? help"
+    status = "↵ switch n new x kill / filter ? help"
     if _ascii():
-        status = "Enter switch  n new  x kill  / filter  r refresh  ? help"
+        status = "Enter go n new x kill / filter ? help"
     filter_text = ""
     filtering = False
     entries = _entries(filter_text)
@@ -446,5 +467,9 @@ def run(stdscr: curses.window) -> None:
 
 
 def main() -> int:
-    curses.wrapper(run)
-    return 0
+    while True:
+        try:
+            curses.wrapper(run)
+            return 0
+        except KeyboardInterrupt:
+            pass
