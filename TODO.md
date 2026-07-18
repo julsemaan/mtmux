@@ -1,2 +1,1 @@
-- When filtering and pressing ctrl-c, it restarts mtmux and needs to fetch all the SSH tmux windows
 - Bottom bar needs to be more obvious with information, right now it is not very visible and doesn't grab attention
