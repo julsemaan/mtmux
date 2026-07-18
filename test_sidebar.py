@@ -55,9 +55,20 @@ class SidebarDrawTest(unittest.TestCase):
 
         _draw(screen, [Entry("LOCAL", "header")], 0, "created b", "")
 
-        status_call = screen.calls[-2]
-        self.assertEqual(status_call[0], "addnstr")
+        status_call = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 4)
         self.assertEqual(status_call[3], "created b".ljust(19))
+
+    def test_default_footer_wraps_and_reserves_bottom_rows_at_40_columns(self):
+        screen = FakeScreen(size=(6, 40))
+        entries = [Entry(str(i), "session", Target("local", str(i))) for i in range(8)]
+        status = "↵ switch  n new  x kill  / filter  r refresh  ? help"
+
+        _draw(screen, entries, 0, status, "")
+
+        footer_calls = [call for call in screen.calls if call[0] == "addnstr" and call[1] in (4, 5)]
+        self.assertEqual([call[1] for call in footer_calls], [4, 5])
+        self.assertIn("refresh  ? help", "".join(call[3] for call in footer_calls))
+        self.assertFalse(any(call[0] == "addnstr" and call[1] >= 4 and call[3].lstrip().startswith(tuple(str(i) for i in range(8))) for call in screen.calls))
 
     def test_prompt_blanks_line_after_input(self):
         screen = FakeScreen([ord("b"), 10])

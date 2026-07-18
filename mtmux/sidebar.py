@@ -4,6 +4,7 @@ import curses
 import locale
 import os
 import re
+import textwrap
 from dataclasses import dataclass
 
 from . import tmux
@@ -272,11 +273,15 @@ def _draw_entries(
         stdscr.addnstr(row, 0, "↓ more", w - 1, _color("hints") or curses.A_DIM)
 
 
-def _draw_footer(stdscr: curses.window, h: int, w: int, status: str, filtering: bool = False) -> None:
+def _draw_footer(stdscr: curses.window, h: int, w: int, status: str, filtering: bool = False) -> int:
     footer = "type to filter  esc clear  backspace edit  ↵ switch" if filtering and not _ascii() else status
     if filtering and _ascii():
         footer = "type to filter  esc clear  backspace edit  Enter switch"
-    stdscr.addnstr(h - 1, 0, footer[: w - 1].ljust(w - 1), w - 1, _color("hints"))
+    width = max(1, w - 1)
+    lines = textwrap.wrap(footer, width=width) or [""]
+    for row, line in enumerate(lines, h - len(lines)):
+        stdscr.addnstr(row, 0, line.ljust(w - 1), w - 1, _color("hints"))
+    return len(lines)
 
 
 def _draw(
@@ -292,8 +297,8 @@ def _draw(
     stdscr.erase()
     h, w = stdscr.getmaxyx()
     _draw_title(stdscr, w, filter_text)
-    _draw_entries(stdscr, entries, selected, h, w, bell_targets or set(), current_target)
-    _draw_footer(stdscr, h, w, status, filtering)
+    footer_height = _draw_footer(stdscr, h, w, status, filtering)
+    _draw_entries(stdscr, entries, selected, h - footer_height + 1, w, bell_targets or set(), current_target)
     stdscr.refresh()
 
 
