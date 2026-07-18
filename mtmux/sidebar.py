@@ -62,6 +62,14 @@ def _read_key(stdscr: curses.window, prompt: str) -> int:
     return key
 
 
+def _filter_key(filter_text: str, key: int) -> str | None:
+    if key in (curses.KEY_BACKSPACE, 8, 127):
+        return filter_text[:-1]
+    if 32 <= key <= 126:
+        return filter_text + chr(key)
+    return None
+
+
 def _draw(stdscr: curses.window, entries: list[Entry], selected: int, status: str, filter_text: str) -> None:
     stdscr.erase()
     h, w = stdscr.getmaxyx()
@@ -83,6 +91,7 @@ def run(stdscr: curses.window) -> None:
     selected = 0
     status = "Enter switch  n new  x kill  r refresh  / filter  ? help  q quit"
     filter_text = ""
+    filtering = False
     entries = _entries(filter_text)
     while True:
         selectable = _selectable(entries)
@@ -90,6 +99,19 @@ def run(stdscr: curses.window) -> None:
             selected = selectable[0]
         _draw(stdscr, entries, selected, status, filter_text)
         key = stdscr.getch()
+        if filtering:
+            if key == 27:
+                filtering = False
+                curses.curs_set(0)
+                status = "filtered" if filter_text else "filter cleared"
+                continue
+            new_filter = _filter_key(filter_text, key)
+            if new_filter is not None:
+                filter_text = new_filter
+                entries = _entries(filter_text)
+                selected = 0
+                status = "filtering" if filter_text else "filter cleared"
+                continue
         selectable = _selectable(entries)
         if key == ord("q"):
             return
@@ -101,12 +123,9 @@ def run(stdscr: curses.window) -> None:
             entries = _entries(filter_text)
             status = "refreshed"
         elif key == ord("/"):
+            filtering = True
             curses.curs_set(1)
-            filter_text = _prompt(stdscr, "/")
-            curses.curs_set(0)
-            entries = _entries(filter_text)
-            selected = 0
-            status = "filtered" if filter_text else "filter cleared"
+            status = "filtering: type, backspace edit, Enter switch"
         elif key == ord("?"):
             try:
                 show_help()
@@ -118,6 +137,11 @@ def run(stdscr: curses.window) -> None:
             try:
                 if target:
                     switch(target)
+                    filter_text = ""
+                    filtering = False
+                    curses.curs_set(0)
+                    entries = _entries(filter_text)
+                    selected = 0
                     status = f"switched {target.format()}"
                 elif new_host is not None:
                     curses.curs_set(1)
