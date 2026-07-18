@@ -26,7 +26,9 @@ def _command(target: Target) -> str:
 
 
 def switch(target: Target) -> None:
-    tmux.tmux("respawn-pane", "-k", "-t", _pane(), _command(target))
+    pane = _pane()
+    tmux.tmux("respawn-pane", "-k", "-t", pane, _command(target))
+    tmux.tmux("select-pane", "-t", pane)
 
 
 def create_local(session: str) -> Target:

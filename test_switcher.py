@@ -1,7 +1,8 @@
 import unittest
+from unittest.mock import patch
 
 from mtmux.names import Target
-from mtmux.switcher import _command
+from mtmux.switcher import _command, switch
 
 
 class SwitcherCommandTest(unittest.TestCase):
@@ -15,6 +16,23 @@ class SwitcherCommandTest(unittest.TestCase):
         self.assertEqual(
             _command(Target("ssh", "work", "dev")),
             "ssh -t dev 'tmux new-session -A -s work'",
+        )
+
+    def test_switch_selects_right_pane_after_respawn(self):
+        calls = []
+
+        with (
+            patch("mtmux.switcher._pane", return_value="%2"),
+            patch("mtmux.switcher.tmux.tmux", side_effect=lambda *args, **kwargs: calls.append(args)),
+        ):
+            switch(Target("local", "work"))
+
+        self.assertEqual(
+            calls,
+            [
+                ("respawn-pane", "-k", "-t", "%2", "env -u TMUX tmux new-session -A -s work"),
+                ("select-pane", "-t", "%2"),
+            ],
         )
 
 
