@@ -37,7 +37,7 @@ def _ascii() -> bool:
 def _icons() -> dict[str, str]:
     if _ascii():
         return {"local": "*", "remote": "*", "local_header": "LOCAL", "remote_header": "SSH", "create": "+", "unavailable": "!", "selected": ">", "starred": "*"}
-    return {"local": "●", "remote": "◆", "local_header": "💻", "remote_header": "🔐", "create": "＋", "unavailable": "⚠", "selected": "›", "starred": "⭐"}
+    return {"local": "●", "remote": "◆", "local_header": "💻", "remote_header": "🔐", "create": "＋", "unavailable": "⚠", "selected": "›", "starred": "✶"}
 
 
 def _init_colors() -> None:
@@ -287,8 +287,8 @@ def _entry_text(entry: Entry, selected: bool, bell_targets: set[str], current_ta
         return entry.label
     if entry.kind == "session":
         kind = "unavailable" if entry.unavailable_favorite else ("remote" if entry.target and entry.target.kind == "ssh" else "local")
-        marker = f" {icon['starred']}" if entry.starred else ""
-        text = f"{pointer} {icon[kind]}{marker} {entry.label}"
+        session_icon = icon["starred"] if entry.starred else icon[kind]
+        text = f"{pointer} {session_icon} {entry.label}"
         if entry.target and entry.target.format() in bell_targets and entry.target != current_target:
             text += " 🔔"
         return text

@@ -553,14 +553,15 @@ class SidebarDrawTest(unittest.TestCase):
         title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
         self.assertTrue(title[3].endswith("1 session"))
 
-    def test_rendered_star_uses_unicode_and_ascii_marker(self):
+    def test_rendered_star_replaces_session_icon(self):
         target = Target("local", "work")
-        entry = Entry("work", "session", target, starred=True)
-        for ascii_mode, marker in ((False, "⭐"), (True, "*")):
+        entries = [Entry("work", "session", target, starred=True), Entry("notes", "session", Target("local", "notes"))]
+        for ascii_mode, expected in ((False, ("› ✶ work", "  ● notes")), (True, ("> * work", "  * notes"))):
             screen = FakeScreen(size=(6, 30))
             with self.subTest(ascii=ascii_mode), patch("mtmux.sidebar._ascii", return_value=ascii_mode):
-                _draw(screen, [entry], 0, "ok", "")
-            self.assertTrue(any(call[0] == "addnstr" and marker in call[3] for call in screen.calls))
+                _draw(screen, entries, 0, "ok", "")
+            rendered = [call[3].rstrip() for call in screen.calls if call[0] == "addnstr"]
+            self.assertTrue(all(text in rendered for text in expected))
 
     def test_f_stars_session_and_persists(self):
         screen = FakeScreen([ord("f"), ord("q")], size=(8, 30))
