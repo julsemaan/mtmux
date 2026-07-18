@@ -42,6 +42,7 @@ class SwitcherCommandTest(unittest.TestCase):
 
         with (
             patch("mtmux.switcher._pane", return_value="%2"),
+            patch("mtmux.switcher.load_prefix", return_value="C-x") as load_prefix,
             patch("mtmux.switcher.tmux.tmux", side_effect=lambda *args, **kwargs: calls.append(args)),
         ):
             show_help()
@@ -49,6 +50,8 @@ class SwitcherCommandTest(unittest.TestCase):
         self.assertEqual(calls[0][:4], ("respawn-pane", "-k", "-t", "%2"))
         self.assertEqual(calls[1], ("select-pane", "-t", "%2"))
         self.assertIn("mtmux cockpit", calls[0][4])
+        self.assertIn("C-x s  focus/open sidebar", calls[0][4])
+        load_prefix.assert_called_once_with()
 
     def test_kill_local_session_uses_default_server(self):
         calls = []
