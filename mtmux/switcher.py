@@ -3,7 +3,7 @@ from __future__ import annotations
 import shlex
 import subprocess
 
-from .cockpit import right_pane
+from .cockpit import HELP, right_pane
 from .names import Target
 from . import tmux
 
@@ -28,6 +28,12 @@ def _command(target: Target) -> str:
 def switch(target: Target) -> None:
     pane = _pane()
     tmux.tmux("respawn-pane", "-k", "-t", pane, _command(target))
+    tmux.tmux("select-pane", "-t", pane)
+
+
+def show_help() -> None:
+    pane = _pane()
+    tmux.tmux("respawn-pane", "-k", "-t", pane, HELP)
     tmux.tmux("select-pane", "-t", pane)
 
 

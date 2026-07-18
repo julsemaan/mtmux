@@ -64,6 +64,7 @@ Switching uses outer tmux `respawn-pane` on right pane. Real tmux sessions stay 
 - `n`: create session for selected group/target
 - `r`: refresh discovery
 - `/`: filter
+- `?`: open help in right pane
 - `q`: quit sidebar only
 
 ## Recovery

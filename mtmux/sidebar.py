@@ -4,7 +4,7 @@ import curses
 
 from .discovery import discover, DiscoveryResult
 from .names import Target, validate_name
-from .switcher import create_local, create_remote, switch
+from .switcher import create_local, create_remote, show_help, switch
 
 Entry = tuple[str, str | None, Target | None]  # label, new-host marker, target
 
@@ -69,7 +69,7 @@ def _draw(stdscr: curses.window, entries: list[Entry], selected: int, status: st
 def run(stdscr: curses.window) -> None:
     curses.curs_set(0)
     selected = 0
-    status = "Enter switch  n new  r refresh  / filter  q quit"
+    status = "Enter switch  n new  r refresh  / filter  ? help  q quit"
     filter_text = ""
     entries = _entries(filter_text)
     while True:
@@ -95,6 +95,12 @@ def run(stdscr: curses.window) -> None:
             entries = _entries(filter_text)
             selected = 0
             status = "filtered" if filter_text else "filter cleared"
+        elif key == ord("?"):
+            try:
+                show_help()
+                status = "help opened"
+            except SystemExit as e:
+                status = str(e)
         elif key in (10, 13, curses.KEY_ENTER):
             _, new_host, target = entries[selected]
             try:

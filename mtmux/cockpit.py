@@ -8,7 +8,7 @@ import sys
 from .config import ensure_config
 from . import tmux
 
-HELP = """printf 'Select a session from mtmux sidebar.\nDetach cockpit: C-g d\nQuit sidebar only: q\nRestart sidebar: mtmux cockpit\n'; exec sh"""
+HELP = """printf 'Select a session from mtmux sidebar.\nOpen help: ?\nDetach cockpit: C-g d\nQuit sidebar only: q\nRestart sidebar: mtmux cockpit\n'; exec sh"""
 SIDEBAR = f"{shlex.quote(sys.executable)} -m mtmux sidebar"
 TARGET = f"{tmux.SESSION}:{tmux.WINDOW}"
 SIDEBAR_WIDTH = "30"
