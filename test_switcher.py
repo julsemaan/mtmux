@@ -48,7 +48,7 @@ class SwitcherCommandTest(unittest.TestCase):
 
         self.assertEqual(calls[0][:4], ("respawn-pane", "-k", "-t", "%2"))
         self.assertEqual(calls[1], ("select-pane", "-t", "%2"))
-        self.assertIn("Select a session from mtmux sidebar", calls[0][4])
+        self.assertIn("mtmux cockpit", calls[0][4])
 
     def test_kill_local_session(self):
         calls = []

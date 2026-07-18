@@ -77,7 +77,7 @@ def remote_sessions(host: str) -> list[str] | None:
     cmd = [
         "ssh",
         "-o", "BatchMode=yes",
-        "-o", "ConnectTimeout=1",
+        "-o", "ConnectTimeout=5",
         "-o", "ServerAliveInterval=1",
         "-o", "ServerAliveCountMax=1",
         host,
