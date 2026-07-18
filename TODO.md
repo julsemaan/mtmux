@@ -4,3 +4,4 @@
 - Find a solution to the long names in the starred section. Maybe multi-line for each entry?
 - Top header sometimes says the wrong amount of sessions. Ex: Says `55 sessions` instead of `5 sessions`
 - Clipboard is not working when using mouse in tmux
+- The left pane seems to frequently redraw and creates flashing in the terminal
