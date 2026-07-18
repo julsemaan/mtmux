@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 import subprocess
 
 from .cockpit import right_pane
@@ -16,13 +17,16 @@ def _pane() -> str:
     return pane
 
 
-def switch(target: Target) -> None:
-    pane = _pane()
+def _command(target: Target) -> str:
+    session = shlex.quote(target.session)
     if target.kind == "local":
-        cmd = f"tmux new-session -A -s {target.session}"
-    else:
-        cmd = f"ssh -t {target.host} 'tmux new-session -A -s {target.session}'"
-    tmux.tmux("respawn-pane", "-k", "-t", pane, cmd)
+        return f"env -u TMUX tmux new-session -A -s {session}"
+    host = shlex.quote(target.host or "")
+    return f"ssh -t {host} 'tmux new-session -A -s {session}'"
+
+
+def switch(target: Target) -> None:
+    tmux.tmux("respawn-pane", "-k", "-t", _pane(), _command(target))
 
 
 def create_local(session: str) -> Target:
