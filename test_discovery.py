@@ -1,10 +1,14 @@
 import unittest
 from unittest.mock import patch
 
-from mtmux.discovery import _bell_sessions, bell_targets
+from mtmux.discovery import _bell_sessions, _clean_env, bell_targets
 
 
 class DiscoveryBellTest(unittest.TestCase):
+    def test_clean_env_removes_current_tmux_socket(self):
+        with patch.dict("mtmux.discovery.os.environ", {"TMUX": "/tmp/tmux,1,0", "PATH": "x"}, clear=True):
+            self.assertEqual(_clean_env(), {"PATH": "x"})
+
     def test_bell_sessions_parses_window_bell_flags(self):
         self.assertEqual(_bell_sessions("work:1\nwork:0\nmtmux:cockpit:1\nbad name:1\nchat:1"), {"work", "chat"})
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 import subprocess
 
 from .config import load_hosts
@@ -35,8 +36,14 @@ def _valid_sessions(text: str) -> list[str]:
     return out
 
 
+def _clean_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env.pop("TMUX", None)
+    return env
+
+
 def local_sessions() -> list[str]:
-    proc = subprocess.run(["tmux", "list-sessions", "-F", "#{session_name}"], text=True, capture_output=True)
+    proc = subprocess.run(["tmux", "list-sessions", "-F", "#{session_name}"], text=True, capture_output=True, env=_clean_env())
     if proc.returncode != 0:
         return []
     return _valid_sessions(proc.stdout)
@@ -56,9 +63,10 @@ def _bell_sessions(text: str) -> set[str]:
 
 
 def local_bell_sessions() -> set[str]:
-    subprocess.run(["tmux", "set-window-option", "-g", "monitor-bell", "on"], text=True, capture_output=True, check=False)
-    subprocess.run(["tmux", "set-option", "-g", "bell-action", "any"], text=True, capture_output=True, check=False)
-    proc = subprocess.run(["tmux", "list-windows", "-a", "-F", "#{session_name}:#{window_bell_flag}:#{window_flags}"], text=True, capture_output=True)
+    env = _clean_env()
+    subprocess.run(["tmux", "set-window-option", "-g", "monitor-bell", "on"], text=True, capture_output=True, check=False, env=env)
+    subprocess.run(["tmux", "set-option", "-g", "bell-action", "any"], text=True, capture_output=True, check=False, env=env)
+    proc = subprocess.run(["tmux", "list-windows", "-a", "-F", "#{session_name}:#{window_bell_flag}:#{window_flags}"], text=True, capture_output=True, env=env)
     if proc.returncode != 0:
         return set()
     return _bell_sessions(proc.stdout)
