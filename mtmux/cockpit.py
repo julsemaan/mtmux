@@ -11,6 +11,7 @@ from . import tmux
 HELP = """printf 'Select a session from mtmux sidebar.\nDetach cockpit: C-g d\nQuit sidebar only: q\nRestart sidebar: mtmux cockpit\n'; exec sh"""
 SIDEBAR = f"{shlex.quote(sys.executable)} -m mtmux sidebar"
 TARGET = f"{tmux.SESSION}:{tmux.WINDOW}"
+SIDEBAR_WIDTH = "30"
 
 
 def _option(name: str) -> str:
@@ -35,6 +36,12 @@ def _set_markers(left: str, right: str) -> None:
     tmux.tmux("set-option", "-t", tmux.SESSION, "@mtmux_right_pane", right)
 
 
+def _fix_layout(left: str) -> None:
+    tmux.tmux("set-window-option", "-t", TARGET, "main-pane-width", SIDEBAR_WIDTH)
+    tmux.tmux("select-pane", "-t", left)
+    tmux.tmux("select-layout", "-t", TARGET, "main-vertical")
+
+
 def _build() -> None:
     _, wrapper = ensure_config()
     if _window_exists():
@@ -44,8 +51,8 @@ def _build() -> None:
     else:
         tmux.tmux("new-window", "-d", "-t", tmux.SESSION, "-n", tmux.WINDOW, HELP)
     right = tmux.out("display-message", "-p", "-t", TARGET, "#{pane_id}")
-    left = tmux.out("split-window", "-h", "-b", "-l", "30", "-P", "-F", "#{pane_id}", "-t", right, SIDEBAR)
-    tmux.tmux("select-pane", "-t", left)
+    left = tmux.out("split-window", "-h", "-b", "-l", SIDEBAR_WIDTH, "-P", "-F", "#{pane_id}", "-t", right, SIDEBAR)
+    _fix_layout(left)
     _set_markers(left, right)
     tmux.tmux("set-option", "-t", tmux.SESSION, "prefix", "C-g")
     tmux.tmux("set-option", "-t", tmux.SESSION, "status", "off")
@@ -55,11 +62,13 @@ def _build() -> None:
 
 def ensure_cockpit() -> None:
     if _valid():
+        _fix_layout(_option("@mtmux_sidebar_pane"))
         return
     if _option("@mtmux_cockpit") == "1":
         right = _option("@mtmux_right_pane")
         if right and tmux.has_pane(right):
-            left = tmux.out("split-window", "-h", "-b", "-l", "30", "-P", "-F", "#{pane_id}", "-t", right, SIDEBAR)
+            left = tmux.out("split-window", "-h", "-b", "-l", SIDEBAR_WIDTH, "-P", "-F", "#{pane_id}", "-t", right, SIDEBAR)
+            _fix_layout(left)
             _set_markers(left, right)
             return
     _build()
