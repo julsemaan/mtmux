@@ -114,7 +114,7 @@ def _ssh_command(host: str) -> list[str]:
 
 def remote_snapshot(host: str) -> RemoteSnapshot:
     try:
-        proc = subprocess.run(_ssh_command(host), text=True, capture_output=True, timeout=3)
+        proc = subprocess.run(_ssh_command(host), text=True, capture_output=True, timeout=10)
     except subprocess.TimeoutExpired:
         return UNAVAILABLE
     return _parse_remote_snapshot(proc.stdout) if proc.returncode == 0 else UNAVAILABLE
