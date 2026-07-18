@@ -22,7 +22,7 @@ class ConfigTest(unittest.TestCase):
     def test_fresh_config_contains_default_prefix(self):
         cfg, wrapper = config.ensure_config()
 
-        self.assertEqual(cfg.read_text(), 'hosts = []\nprefix = "C-s"\nsidebar_width = 40\n')
+        self.assertEqual(cfg.read_text(), 'hosts = []\nprefix = "C-s"\nsidebar_width = 40\nstatus_timeout = 5\n')
         self.assertNotIn("prefix", wrapper.read_text())
         self.assertNotIn("send-prefix", wrapper.read_text())
         self.assertIn("set -g mouse on", wrapper.read_text())
@@ -66,6 +66,20 @@ class ConfigTest(unittest.TestCase):
                 self.write_config(f"sidebar_width = {value}\n")
                 with self.assertRaisesRegex(SystemExit, "sidebar_width must be a positive integer"):
                     config.load_sidebar_width()
+
+    def test_status_timeout_defaults_to_5_and_accepts_custom_value(self):
+        self.write_config("hosts = []\n")
+        self.assertEqual(config.load_status_timeout(), 5)
+
+        self.write_config("status_timeout = 12\n")
+        self.assertEqual(config.load_status_timeout(), 12)
+
+    def test_invalid_status_timeout_fails_clearly(self):
+        for value in ("0", "-1", '"5"', "true"):
+            with self.subTest(value=value):
+                self.write_config(f"status_timeout = {value}\n")
+                with self.assertRaisesRegex(SystemExit, "status_timeout must be a positive integer"):
+                    config.load_status_timeout()
 
     def test_missing_stars_file_loads_empty(self):
         self.assertEqual(config.load_stars(), set())

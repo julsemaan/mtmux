@@ -1,1 +1,0 @@
-- Bottom bar needs to be more obvious with information, right now it is not very visible and doesn't grab attention

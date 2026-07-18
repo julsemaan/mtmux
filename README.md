@@ -39,9 +39,10 @@ Files live in `~/.config/mtmux/`:
 hosts = ["prod", "dev"]
 prefix = "C-s"
 sidebar_width = 40
+status_timeout = 5
 ```
 
-`prefix` accepts one non-empty, printable tmux key token without whitespace. `sidebar_width` sets left pane width in columns and must be a positive integer. Rerun `mtmux cockpit` after changing either value.
+`prefix` accepts one non-empty, printable tmux key token without whitespace. `sidebar_width` sets left pane width in columns. `status_timeout` controls how many seconds sidebar feedback remains visible. Both numeric settings must be positive integers. Restart sidebar by rerunning `mtmux cockpit` after changing these values.
 
 `C-s` normally sends XOFF when terminal `IXON` flow control is enabled. Attached tmux disables flow control on outer tty, so outer prefix works without global `stty` changes. Readline, Emacs, or Vim `C-s` commands require `C-s C-s` to forward literal `C-s`; inner tty may still treat it as XOFF, in which case `C-q` resumes output.
 

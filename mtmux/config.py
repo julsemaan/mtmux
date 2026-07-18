@@ -8,7 +8,8 @@ from .names import Target, parse_target
 
 DEFAULT_PREFIX = "C-s"
 DEFAULT_SIDEBAR_WIDTH = 40
-CONFIG_TEXT = f'hosts = []\nprefix = "{DEFAULT_PREFIX}"\nsidebar_width = {DEFAULT_SIDEBAR_WIDTH}\n'
+DEFAULT_STATUS_TIMEOUT = 5
+CONFIG_TEXT = f'hosts = []\nprefix = "{DEFAULT_PREFIX}"\nsidebar_width = {DEFAULT_SIDEBAR_WIDTH}\nstatus_timeout = {DEFAULT_STATUS_TIMEOUT}\n'
 WRAPPER_TEXT = """unbind C-b
 set -g status off
 set -g mouse on
@@ -59,6 +60,14 @@ def load_sidebar_width() -> int:
     if isinstance(width, bool) or not isinstance(width, int) or width < 1:
         raise SystemExit(f"Invalid config {cfg}: sidebar_width must be a positive integer")
     return width
+
+
+def load_status_timeout() -> int:
+    cfg, data = _load_config()
+    timeout = data.get("status_timeout", DEFAULT_STATUS_TIMEOUT)
+    if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout < 1:
+        raise SystemExit(f"Invalid config {cfg}: status_timeout must be a positive integer")
+    return timeout
 
 
 def load_hosts() -> list[str]:
