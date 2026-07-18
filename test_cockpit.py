@@ -15,8 +15,8 @@ class CockpitLayoutTest(unittest.TestCase):
             calls,
             [
                 ("set-window-option", "-t", cockpit.TARGET, "main-pane-width", "40"),
-                ("set-window-option", "-t", cockpit.TARGET, "window-style", "fg=colour8"),
-                ("set-window-option", "-t", cockpit.TARGET, "window-active-style", "fg=terminal"),
+                ("set-window-option", "-u", "-t", cockpit.TARGET, "window-style"),
+                ("set-window-option", "-u", "-t", cockpit.TARGET, "window-active-style"),
                 ("set-window-option", "-t", cockpit.TARGET, "pane-border-style", "fg=terminal"),
                 ("set-window-option", "-t", cockpit.TARGET, "pane-active-border-style", "fg=terminal"),
                 ("set-window-option", "-t", cockpit.TARGET, "pane-border-lines", "single"),

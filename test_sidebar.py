@@ -55,6 +55,9 @@ class FakeScreen:
     def refresh(self):
         self.calls.append(("refresh",))
 
+    def move(self, *args):
+        self.calls.append(("move", *args))
+
     def timeout(self, *args):
         self.calls.append(("timeout", *args))
 
@@ -135,6 +138,15 @@ class SidebarDrawTest(unittest.TestCase):
         self.assertEqual(screen.calls[4], ("getch",))
         self.assertEqual(screen.calls[0], ("timeout", -1))
         self.assertEqual(screen.calls[-1], ("timeout", 500))
+
+    def test_filter_text_and_cursor_are_in_title(self):
+        screen = FakeScreen(size=(5, 20))
+
+        _draw(screen, [], 0, "filtering", "work", filtering=True)
+
+        call = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
+        self.assertIn("filter: work", call[3][:call[4]])
+        self.assertIn(("move", 0, len(" filter: work")), screen.calls)
 
     def test_filter_key_updates_live_text(self):
         self.assertEqual(_filter_key("a", ord("b")), "ab")

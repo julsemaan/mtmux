@@ -65,8 +65,8 @@ def _set_markers(left: str, right: str) -> None:
 
 def _fix_layout(left: str) -> None:
     tmux.tmux("set-window-option", "-t", TARGET, "main-pane-width", SIDEBAR_WIDTH)
-    tmux.tmux("set-window-option", "-t", TARGET, "window-style", "fg=colour8")
-    tmux.tmux("set-window-option", "-t", TARGET, "window-active-style", "fg=terminal")
+    tmux.tmux("set-window-option", "-u", "-t", TARGET, "window-style")
+    tmux.tmux("set-window-option", "-u", "-t", TARGET, "window-active-style")
     tmux.tmux("set-window-option", "-t", TARGET, "pane-border-style", "fg=terminal")
     tmux.tmux("set-window-option", "-t", TARGET, "pane-active-border-style", "fg=terminal")
     tmux.tmux("set-window-option", "-t", TARGET, "pane-border-lines", "single")

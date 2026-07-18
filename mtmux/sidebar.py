@@ -214,9 +214,7 @@ def _viewport(entries: list[Entry], selected: int, height: int) -> tuple[int, in
 
 def _draw_title(stdscr: curses.window, w: int, filter_text: str, dimmed: bool = False) -> None:
     suffix = f"filter: {filter_text}" if filter_text else ""
-    title = " mtmux"
-    if suffix:
-        title = f"{title:<30}{suffix}"
+    title = f" {suffix}" if suffix else " mtmux"
     attr = _color("title") or curses.A_BOLD
     stdscr.addnstr(0, 0, title.ljust(w - 1), w - 1, _fade(attr) if dimmed else attr)
 
@@ -332,6 +330,8 @@ def _draw(
         current_target,
         dimmed,
     )
+    if filtering:
+        stdscr.move(0, min(w - 2, len(f" filter: {filter_text}")))
     stdscr.refresh()
 
 
