@@ -498,14 +498,19 @@ class SidebarDrawTest(unittest.TestCase):
         self.assertEqual(calls, ["", "w", ""])
 
     def test_ctrl_c_cancels_filter_without_exiting(self):
-        screen = FakeScreen([ord("/"), ord("w"), 3, ord("q")])
+        screen = FakeScreen()
+        screen.getch = unittest.mock.Mock(side_effect=[ord("/"), ord("w"), KeyboardInterrupt, ord("q")])
         calls = []
+        poller = unittest.mock.Mock()
+        poller.snapshots = {}
+        poller.tick.return_value = False
 
         def entries(filter_text="", *_):
             calls.append(filter_text)
             return [Entry("LOCAL", "header"), Entry("work", "session", Target("local", "work"))]
 
         with (
+            patch("mtmux.sidebar.RemotePoller", return_value=poller),
             patch("mtmux.sidebar.curses.curs_set"),
             patch("mtmux.sidebar._init_colors"),
             patch("mtmux.sidebar._entries", side_effect=entries),
@@ -515,6 +520,7 @@ class SidebarDrawTest(unittest.TestCase):
             run(screen)
 
         self.assertEqual(calls, ["", "w", ""])
+        poller.close.assert_called_once_with()
 
     def test_starred_entries_are_first_sorted_duplicated_and_stale(self):
         local = ["work"]

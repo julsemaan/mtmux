@@ -447,7 +447,12 @@ def run(stdscr: curses.window) -> None:
                 curses.beep()
             rang_bells = visible_bells
             footer_height = _draw(stdscr, entries, selected, status, filter_text, filtering, bell_targets, current_target, not _pane_active())
-            key = stdscr.getch()
+            try:
+                key = stdscr.getch()
+            except KeyboardInterrupt:
+                if not filtering:
+                    raise
+                key = 3
             if key == -1:
                 continue
             if key == curses.KEY_MOUSE:
