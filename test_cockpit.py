@@ -32,6 +32,7 @@ class CockpitLayoutTest(unittest.TestCase):
             patch.object(cockpit, "_fix_layout") as fix_layout,
             patch.object(cockpit, "_install_layout_hooks") as install_layout_hooks,
             patch.object(cockpit, "_install_bindings") as install_bindings,
+            patch.object(cockpit, "_enable_mouse") as enable_mouse,
             patch.object(cockpit, "_install_bell_hook") as install_bell_hook,
             patch.object(cockpit, "_install_right_pane_reset") as install_right_pane_reset,
             patch.object(cockpit, "load_prefix", return_value="C-x"),
@@ -44,6 +45,7 @@ class CockpitLayoutTest(unittest.TestCase):
         install_bell_hook.assert_called_once_with()
         install_right_pane_reset.assert_called_once_with("%1", "%1", "C-x")
         install_bindings.assert_called_once_with("C-x")
+        enable_mouse.assert_called_once_with()
         tmux_call.assert_called_once_with("set-option", "-t", "mtmux", "prefix", "C-x")
 
     def test_layout_hooks_repin_sidebar_after_attach_or_resize(self):
@@ -60,6 +62,12 @@ class CockpitLayoutTest(unittest.TestCase):
                 ("set-hook", "-t", "mtmux", "client-resized", command),
             ],
         )
+
+    def test_enable_mouse_sets_runtime_session_option(self):
+        with patch.object(cockpit.tmux, "tmux") as tmux_call:
+            cockpit._enable_mouse()
+
+        tmux_call.assert_called_once_with("set-option", "-t", "mtmux", "mouse", "on")
 
     def test_bindings_include_sidebar_focus_shortcut(self):
         calls = []
@@ -117,8 +125,29 @@ class CockpitLayoutTest(unittest.TestCase):
             cockpit._build("C-x")
 
         self.assertIn((("set-option", "-t", "mtmux", "prefix", "C-x"), {}), calls)
+        self.assertIn((("set-option", "-t", "mtmux", "mouse", "on"), {}), calls)
         new_session = next(args for args, _ in calls if args[0] == "new-session")
         self.assertIn("C-x s  focus/open sidebar", new_session[-1])
+
+    def test_missing_sidebar_recreation_reapplies_mouse(self):
+        with (
+            patch.object(cockpit, "load_prefix", return_value="C-x"),
+            patch.object(cockpit, "_valid", return_value=False),
+            patch.object(cockpit, "_option", side_effect=lambda name: "1" if name == "@mtmux_cockpit" else "%2"),
+            patch.object(cockpit.tmux, "has_pane", return_value=True),
+            patch.object(cockpit.tmux, "out", return_value="%1"),
+            patch.object(cockpit.tmux, "tmux"),
+            patch.object(cockpit, "_fix_layout"),
+            patch.object(cockpit, "_set_markers"),
+            patch.object(cockpit, "_install_layout_hooks"),
+            patch.object(cockpit, "_install_bell_hook"),
+            patch.object(cockpit, "_install_right_pane_reset"),
+            patch.object(cockpit, "_install_bindings"),
+            patch.object(cockpit, "_enable_mouse") as enable_mouse,
+        ):
+            cockpit.ensure_cockpit()
+
+        enable_mouse.assert_called_once_with()
 
     def test_install_bell_hook_enables_outer_tmux_bells(self):
         calls = []

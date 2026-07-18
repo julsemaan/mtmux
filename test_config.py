@@ -25,6 +25,16 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(cfg.read_text(), 'hosts = []\nprefix = "C-s"\n')
         self.assertNotIn("prefix", wrapper.read_text())
         self.assertNotIn("send-prefix", wrapper.read_text())
+        self.assertIn("set -g mouse on", wrapper.read_text())
+
+    def test_existing_wrapper_is_preserved(self):
+        wrapper = Path(self.tempdir.name) / "wrapper.tmux.conf"
+        wrapper.parent.mkdir(parents=True, exist_ok=True)
+        wrapper.write_text("set -g mouse off\n")
+
+        config.ensure_config()
+
+        self.assertEqual(wrapper.read_text(), "set -g mouse off\n")
 
     def test_missing_prefix_uses_default(self):
         self.write_config("hosts = []\n")

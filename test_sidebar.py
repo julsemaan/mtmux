@@ -10,7 +10,9 @@ from mtmux.sidebar import (
     _current_target,
     _draw,
     _fade,
+    _entry_at_row,
     _filter_key,
+    _mouse_mask,
     _pane_active,
     _prompt,
     _read_key,
@@ -84,6 +86,47 @@ class SidebarDrawTest(unittest.TestCase):
             self.assertEqual(main(), 0)
 
         self.assertEqual(wrapper.call_count, 2)
+
+    def test_mouse_mask_registers_only_supported_events(self):
+        expected = (
+            curses.BUTTON1_PRESSED
+            | curses.BUTTON1_CLICKED
+            | curses.BUTTON1_DOUBLE_CLICKED
+            | curses.BUTTON4_PRESSED
+            | getattr(curses, "BUTTON5_PRESSED", 0)
+        )
+        with patch("mtmux.sidebar.curses.mousemask") as mousemask:
+            _mouse_mask()
+
+        mousemask.assert_called_once_with(expected)
+
+    def test_mouse_mask_tolerates_missing_button5(self):
+        with patch.object(curses, "BUTTON5_PRESSED", None), patch("mtmux.sidebar.curses.mousemask") as mousemask:
+            _mouse_mask()
+
+        self.assertFalse(mousemask.call_args.args[0] & 2097152)
+
+    def test_entry_at_row_maps_visible_and_scrolled_rows(self):
+        entries = [Entry(str(i), "session", Target("local", str(i))) for i in range(10)]
+
+        self.assertEqual(_entry_at_row(entries, 0, 1, 8, 1), 0)
+        start, _ = _viewport(entries, 9, 8)
+        self.assertEqual(_entry_at_row(entries, 9, 2, 8, 1), start)
+
+    def test_entry_at_row_ignores_non_selectable_and_non_entry_areas(self):
+        entries = [
+            Entry("LOCAL", "header"),
+            Entry("offline", "unavailable"),
+            Entry("work", "session", Target("local", "work")),
+            Entry("new", "create", host=""),
+            *[Entry(str(i), "session", Target("local", str(i))) for i in range(6)],
+        ]
+
+        self.assertIsNone(_entry_at_row(entries, 2, 0, 7, 1))  # title
+        self.assertIsNone(_entry_at_row(entries, 2, 1, 7, 1))  # up marker
+        self.assertIsNone(_entry_at_row(entries, 0, 1, 8, 1))  # header
+        self.assertIsNone(_entry_at_row(entries, 0, 2, 8, 1))  # unavailable
+        self.assertIsNone(_entry_at_row(entries, 0, 6, 7, 1))  # footer/down marker
 
     def test_status_line_pads_shorter_message(self):
         screen = FakeScreen()
@@ -327,6 +370,81 @@ class SidebarDrawTest(unittest.TestCase):
             run(screen)
 
         beep.assert_called_once_with()
+
+    def test_single_click_selects_row(self):
+        entries = [
+            Entry("LOCAL", "header"),
+            Entry("one", "session", Target("local", "one")),
+            Entry("two", "session", Target("local", "two")),
+        ]
+        screen = FakeScreen([curses.KEY_MOUSE, 10, ord("q")], size=(8, 30))
+
+        with (
+            patch("mtmux.sidebar.curses.curs_set"),
+            patch("mtmux.sidebar.curses.mousemask"),
+            patch("mtmux.sidebar.curses.getmouse", return_value=(0, 0, 3, 0, curses.BUTTON1_CLICKED)),
+            patch("mtmux.sidebar._init_colors"),
+            patch("mtmux.sidebar._entries", return_value=entries),
+            patch("mtmux.sidebar._bell_targets", return_value=set()),
+            patch("mtmux.sidebar._current_target", return_value=None),
+            patch("mtmux.sidebar.switch") as switch,
+        ):
+            run(screen)
+
+        switch.assert_called_once_with(Target("local", "two"))
+
+    def test_double_click_reuses_switch_path(self):
+        target = Target("local", "work")
+        screen = FakeScreen([curses.KEY_MOUSE, ord("q")], size=(8, 30))
+
+        with (
+            patch("mtmux.sidebar.curses.curs_set"),
+            patch("mtmux.sidebar.curses.mousemask"),
+            patch("mtmux.sidebar.curses.getmouse", return_value=(0, 0, 1, 0, curses.BUTTON1_DOUBLE_CLICKED)),
+            patch("mtmux.sidebar._init_colors"),
+            patch("mtmux.sidebar._entries", return_value=[Entry("work", "session", target)]),
+            patch("mtmux.sidebar._bell_targets", return_value=set()),
+            patch("mtmux.sidebar._current_target", return_value=None),
+            patch("mtmux.sidebar.switch") as switch,
+        ):
+            run(screen)
+
+        switch.assert_called_once_with(target)
+
+    def test_wheel_reuses_wrapping_navigation(self):
+        entries = [
+            Entry("LOCAL", "header"),
+            Entry("one", "session", Target("local", "one")),
+            Entry("two", "session", Target("local", "two")),
+        ]
+        screen = FakeScreen([curses.KEY_MOUSE, 10, ord("q")], size=(8, 30))
+
+        with (
+            patch("mtmux.sidebar.curses.curs_set"),
+            patch("mtmux.sidebar.curses.mousemask"),
+            patch("mtmux.sidebar.curses.getmouse", return_value=(0, 0, 0, 0, curses.BUTTON4_PRESSED)),
+            patch("mtmux.sidebar._init_colors"),
+            patch("mtmux.sidebar._entries", return_value=entries),
+            patch("mtmux.sidebar._bell_targets", return_value=set()),
+            patch("mtmux.sidebar._current_target", return_value=None),
+            patch("mtmux.sidebar.switch") as switch,
+        ):
+            run(screen)
+
+        switch.assert_called_once_with(Target("local", "two"))
+
+    def test_malformed_mouse_event_is_ignored(self):
+        screen = FakeScreen([curses.KEY_MOUSE, ord("q")])
+        with (
+            patch("mtmux.sidebar.curses.curs_set"),
+            patch("mtmux.sidebar.curses.mousemask"),
+            patch("mtmux.sidebar.curses.getmouse", side_effect=[(0, 0, None, 0, None), curses.error()]),
+            patch("mtmux.sidebar._init_colors"),
+            patch("mtmux.sidebar._entries", return_value=[Entry("work", "session", Target("local", "work"))]),
+            patch("mtmux.sidebar._bell_targets", return_value=set()),
+            patch("mtmux.sidebar._current_target", return_value=None),
+        ):
+            run(screen)
 
     def test_live_filter_refreshes_then_clears_after_switch(self):
         screen = FakeScreen([ord("/"), ord("w"), 10, ord("q")])

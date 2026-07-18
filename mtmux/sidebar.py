@@ -220,6 +220,30 @@ def _viewport(entries: list[Entry], selected: int, height: int) -> tuple[int, in
     return start, end
 
 
+def _entry_at_row(entries: list[Entry], selected: int, row: int, height: int, footer_height: int) -> int | None:
+    content_height = height - footer_height + 1
+    start, end = _viewport(entries, selected, content_height)
+    entry_row = row - 1 - int(start > 0)
+    index = start + entry_row
+    if entry_row < 0 or row >= height - footer_height or index >= end:
+        return None
+    return index if entries[index].kind in ("session", "create") else None
+
+
+def _mouse_mask() -> None:
+    events = (
+        getattr(curses, "BUTTON1_PRESSED", 0),
+        getattr(curses, "BUTTON1_CLICKED", 0),
+        getattr(curses, "BUTTON1_DOUBLE_CLICKED", 0),
+        getattr(curses, "BUTTON4_PRESSED", 0),
+        getattr(curses, "BUTTON5_PRESSED", 0),
+    )
+    try:
+        curses.mousemask(sum(event for event in events if isinstance(event, int)))
+    except curses.error:
+        pass
+
+
 def _draw_title(
     stdscr: curses.window,
     w: int,
@@ -336,7 +360,7 @@ def _draw(
     bell_targets: set[str] | None = None,
     current_target: Target | None = None,
     dimmed: bool = False,
-) -> None:
+) -> int:
     stdscr.erase()
     h, w = stdscr.getmaxyx()
     cursor = _draw_title(stdscr, w, entries, filter_text, filtering, dimmed)
@@ -354,6 +378,7 @@ def _draw(
     if filtering:
         stdscr.move(0, cursor)
     stdscr.refresh()
+    return footer_height
 
 
 def _session_prompt(stdscr: curses.window) -> str | None:
@@ -364,6 +389,7 @@ def _session_prompt(stdscr: curses.window) -> str | None:
 def run(stdscr: curses.window) -> None:
     _init_colors()
     curses.curs_set(0)
+    _mouse_mask()
     status = "↵ switch n new x kill / filter ? help" if not _ascii() else "Enter go n new x kill / filter ? help"
     filter_text = ""
     filtering = False
@@ -399,10 +425,32 @@ def run(stdscr: curses.window) -> None:
             if visible_bells - rang_bells:
                 curses.beep()
             rang_bells = visible_bells
-            _draw(stdscr, entries, selected, status, filter_text, filtering, bell_targets, current_target, not _pane_active())
+            footer_height = _draw(stdscr, entries, selected, status, filter_text, filtering, bell_targets, current_target, not _pane_active())
             key = stdscr.getch()
             if key == -1:
                 continue
+            if key == curses.KEY_MOUSE:
+                try:
+                    _, _, row, _, state = curses.getmouse()
+                except (curses.error, TypeError, ValueError):
+                    continue
+                if not isinstance(row, int) or not isinstance(state, int):
+                    continue
+                if state & (getattr(curses, "BUTTON4_PRESSED", 0) or 0):
+                    key = curses.KEY_UP
+                elif state & (getattr(curses, "BUTTON5_PRESSED", 0) or 0):
+                    key = curses.KEY_DOWN
+                else:
+                    index = _entry_at_row(entries, selected, row, stdscr.getmaxyx()[0], footer_height)
+                    if index is None:
+                        continue
+                    selected = index
+                    if state & (getattr(curses, "BUTTON1_DOUBLE_CLICKED", 0) or 0):
+                        key = curses.KEY_ENTER
+                    elif state & ((getattr(curses, "BUTTON1_CLICKED", 0) or 0) | (getattr(curses, "BUTTON1_PRESSED", 0) or 0)):
+                        continue
+                    else:
+                        continue
             if filtering:
                 if key in (27, 3):
                     filter_text = ""

@@ -85,6 +85,10 @@ def _install_bindings(prefix: str) -> None:
     tmux.tmux("bind-key", "s", "run-shell", FOCUS_SIDEBAR)
 
 
+def _enable_mouse() -> None:
+    tmux.tmux("set-option", "-t", tmux.SESSION, "mouse", "on")
+
+
 def _install_bell_hook() -> None:
     tmux.tmux("set-window-option", "-t", TARGET, "monitor-bell", "on")
     tmux.tmux("set-option", "-t", tmux.SESSION, "bell-action", "any")
@@ -115,7 +119,7 @@ def _build(prefix: str) -> None:
     _install_right_pane_reset(left, right, prefix)
     tmux.tmux("set-option", "-t", tmux.SESSION, "prefix", prefix)
     tmux.tmux("set-option", "-t", tmux.SESSION, "status", "off")
-    tmux.tmux("set-option", "-t", tmux.SESSION, "mouse", "off")
+    _enable_mouse()
     _install_bindings(prefix)
 
 
@@ -129,6 +133,7 @@ def ensure_cockpit() -> None:
         _install_bell_hook()
         _install_right_pane_reset(left, right, prefix)
         tmux.tmux("set-option", "-t", tmux.SESSION, "prefix", prefix)
+        _enable_mouse()
         _install_bindings(prefix)
         return
     if _option("@mtmux_cockpit") == "1":
@@ -141,6 +146,7 @@ def ensure_cockpit() -> None:
             _install_bell_hook()
             _install_right_pane_reset(left, right, prefix)
             tmux.tmux("set-option", "-t", tmux.SESSION, "prefix", prefix)
+            _enable_mouse()
             _install_bindings(prefix)
             return
     _build(prefix)

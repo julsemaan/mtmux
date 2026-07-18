@@ -101,6 +101,15 @@ Switching uses outer tmux `respawn-pane` on right pane. Real tmux sessions stay 
 - `?`: open help in right pane
 - `q`: quit sidebar only
 
+## Mouse controls
+
+- click sidebar row: select
+- double-click sidebar row: switch or create
+- wheel over sidebar: navigate
+- right-pane mouse events: forwarded by outer tmux to mouse-aware applications
+
+Tmux mouse capture may require holding `Shift` for terminal-native text selection.
+
 ## Recovery
 
 Press `C-s s` or rerun:

@@ -8,7 +8,7 @@ DEFAULT_PREFIX = "C-s"
 CONFIG_TEXT = f'hosts = []\nprefix = "{DEFAULT_PREFIX}"\n'
 WRAPPER_TEXT = """unbind C-b
 set -g status off
-set -g mouse off
+set -g mouse on
 """
 
 
