@@ -24,6 +24,7 @@ tmux -L mtmux
 Outer tmux owns layout only:
 
 - outer prefix: `C-g`
+- focus/open sidebar: `C-g s`
 - outer status: off
 - left pane: `mtmux` sidebar, 30 cols
 - right pane: selected local/remote tmux attach client
@@ -62,6 +63,7 @@ Switching uses outer tmux `respawn-pane` on right pane. Real tmux sessions stay 
 
 ## Sidebar keys
 
+- `C-g s`: focus sidebar; recreates it if quit
 - `Enter`: switch selected target
 - `n`: create session for selected group/target
 - `x`: kill selected session (asks first)
@@ -72,7 +74,7 @@ Switching uses outer tmux `respawn-pane` on right pane. Real tmux sessions stay 
 
 ## Recovery
 
-Rerun:
+Press `C-g s` or rerun:
 
 ```sh
 mtmux cockpit

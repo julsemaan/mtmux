@@ -8,8 +8,9 @@ import sys
 from .config import ensure_config
 from . import tmux
 
-HELP = """printf 'Select a session from mtmux sidebar.\nOpen help: ?\nDetach cockpit: C-g d\nQuit sidebar only: q\nRestart sidebar: mtmux cockpit\n'; exec sh"""
+HELP = """printf 'Select a session from mtmux sidebar.\nFocus/open sidebar: C-g s\nOpen help: ?\nDetach cockpit: C-g d\nQuit sidebar only: q\nRestart sidebar: C-g s\n'; exec sh"""
 SIDEBAR = f"{shlex.quote(sys.executable)} -m mtmux sidebar"
+FOCUS_SIDEBAR = f"{shlex.quote(sys.executable)} -m mtmux focus-sidebar"
 TARGET = f"{tmux.SESSION}:{tmux.WINDOW}"
 SIDEBAR_WIDTH = "30"
 
@@ -48,6 +49,11 @@ def _install_layout_hooks(left: str) -> None:
     tmux.tmux("set-hook", "-t", tmux.SESSION, "client-resized", command)
 
 
+def _install_bindings() -> None:
+    tmux.tmux("bind-key", "C-g", "send-prefix")
+    tmux.tmux("bind-key", "s", "run-shell", FOCUS_SIDEBAR)
+
+
 def _build() -> None:
     _, wrapper = ensure_config()
     if _window_exists():
@@ -64,7 +70,7 @@ def _build() -> None:
     tmux.tmux("set-option", "-t", tmux.SESSION, "prefix", "C-g")
     tmux.tmux("set-option", "-t", tmux.SESSION, "status", "off")
     tmux.tmux("set-option", "-t", tmux.SESSION, "mouse", "off")
-    tmux.tmux("bind-key", "C-g", "send-prefix")
+    _install_bindings()
 
 
 def ensure_cockpit() -> None:
@@ -72,6 +78,7 @@ def ensure_cockpit() -> None:
         left = _option("@mtmux_sidebar_pane")
         _fix_layout(left)
         _install_layout_hooks(left)
+        _install_bindings()
         return
     if _option("@mtmux_cockpit") == "1":
         right = _option("@mtmux_right_pane")
@@ -80,6 +87,7 @@ def ensure_cockpit() -> None:
             _fix_layout(left)
             _set_markers(left, right)
             _install_layout_hooks(left)
+            _install_bindings()
             return
     _build()
 
@@ -112,6 +120,12 @@ def cockpit() -> int:
         return 2
     ensure_cockpit()
     return _attach()
+
+
+def focus_sidebar() -> int:
+    ensure_config()
+    ensure_cockpit()
+    return 0
 
 
 def right_pane() -> str | None:

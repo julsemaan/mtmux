@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .cockpit import cockpit
+from .cockpit import cockpit, focus_sidebar
 from .config import ensure_config
 from .discovery import discover
 from .names import parse_target, validate_name
@@ -20,6 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("cockpit", help="launch or attach cockpit")
+    sub.add_parser("focus-sidebar", help="focus/open cockpit sidebar")
     sub.add_parser("init", help="create missing config files")
     sub.add_parser("list", help="list discovered targets")
 
@@ -52,6 +53,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "cockpit":
         return cockpit()
+    if args.command == "focus-sidebar":
+        return focus_sidebar()
     if args.command == "list":
         for item in discover():
             print(item.line())

@@ -1,1 +1,1 @@
-- Better way to get to the side bar. Some shortcut that will focus on it and open it if it is not open already
+- When filtering sessions, it should be a live filter. Then once a session is selected, it should clear the filter
