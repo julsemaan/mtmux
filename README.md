@@ -26,7 +26,7 @@ Outer tmux owns layout only:
 - outer prefix: `C-s`
 - focus/open sidebar: `C-s s`
 - outer status: off
-- left pane: `mtmux` sidebar, 30 cols
+- left pane: `mtmux` sidebar, 40 cols by default
 - right pane: selected local/remote tmux attach client
 
 Inner local/remote tmux sessions keep their normal prefix.
@@ -38,9 +38,10 @@ Files live in `~/.config/mtmux/`:
 ```toml
 hosts = ["prod", "dev"]
 prefix = "C-s"
+sidebar_width = 40
 ```
 
-`prefix` accepts one non-empty, printable tmux key token without whitespace. Rerun `mtmux cockpit` after changing it.
+`prefix` accepts one non-empty, printable tmux key token without whitespace. `sidebar_width` sets left pane width in columns and must be a positive integer. Rerun `mtmux cockpit` after changing either value.
 
 `C-s` normally sends XOFF when terminal `IXON` flow control is enabled. Attached tmux disables flow control on outer tty, so outer prefix works without global `stty` changes. Readline, Emacs, or Vim `C-s` commands require `C-s C-s` to forward literal `C-s`; inner tty may still treat it as XOFF, in which case `C-q` resumes output.
 

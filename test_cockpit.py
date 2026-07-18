@@ -5,16 +5,16 @@ from mtmux import cockpit
 
 
 class CockpitLayoutTest(unittest.TestCase):
-    def test_fix_layout_pins_sidebar_to_40_columns(self):
+    def test_fix_layout_pins_sidebar_to_configured_width(self):
         calls = []
 
         with patch.object(cockpit.tmux, "tmux", side_effect=lambda *args, **kwargs: calls.append(args)):
-            cockpit._fix_layout("%1")
+            cockpit._fix_layout("%1", 52)
 
         self.assertEqual(
             calls,
             [
-                ("set-window-option", "-t", cockpit.TARGET, "main-pane-width", "40"),
+                ("set-window-option", "-t", cockpit.TARGET, "main-pane-width", "52"),
                 ("set-window-option", "-u", "-t", cockpit.TARGET, "window-style"),
                 ("set-window-option", "-u", "-t", cockpit.TARGET, "window-active-style"),
                 ("set-window-option", "-t", cockpit.TARGET, "pane-border-style", "fg=terminal"),
@@ -36,12 +36,13 @@ class CockpitLayoutTest(unittest.TestCase):
             patch.object(cockpit, "_install_bell_hook") as install_bell_hook,
             patch.object(cockpit, "_install_right_pane_reset") as install_right_pane_reset,
             patch.object(cockpit, "load_prefix", return_value="C-x"),
+            patch.object(cockpit, "load_sidebar_width", return_value=52),
             patch.object(cockpit.tmux, "tmux") as tmux_call,
         ):
             cockpit.ensure_cockpit()
 
-        fix_layout.assert_called_once_with("%1")
-        install_layout_hooks.assert_called_once_with("%1")
+        fix_layout.assert_called_once_with("%1", 52)
+        install_layout_hooks.assert_called_once_with("%1", 52)
         install_bell_hook.assert_called_once_with()
         install_right_pane_reset.assert_called_once_with("%1", "%1", "C-x")
         install_bindings.assert_called_once_with("C-x")
@@ -52,9 +53,9 @@ class CockpitLayoutTest(unittest.TestCase):
         calls = []
 
         with patch.object(cockpit.tmux, "tmux", side_effect=lambda *args, **kwargs: calls.append(args)):
-            cockpit._install_layout_hooks("%1")
+            cockpit._install_layout_hooks("%1", 52)
 
-        command = "set-window-option -t mtmux:cockpit main-pane-width 40 ; select-pane -t %1 ; select-layout -t mtmux:cockpit main-vertical"
+        command = "set-window-option -t mtmux:cockpit main-pane-width 52 ; select-pane -t %1 ; select-layout -t mtmux:cockpit main-vertical"
         self.assertEqual(
             calls,
             [
@@ -114,7 +115,7 @@ class CockpitLayoutTest(unittest.TestCase):
         with (
             patch.object(cockpit, "ensure_config", return_value=(None, "wrapper")),
             patch.object(cockpit.tmux, "tmux", side_effect=tmux_call),
-            patch.object(cockpit.tmux, "out", side_effect=["%2", "%1"]),
+            patch.object(cockpit.tmux, "out", side_effect=["%2", "%1"]) as tmux_out,
             patch.object(cockpit, "_fix_layout"),
             patch.object(cockpit, "_set_markers"),
             patch.object(cockpit, "_install_layout_hooks"),
@@ -122,16 +123,19 @@ class CockpitLayoutTest(unittest.TestCase):
             patch.object(cockpit, "_install_right_pane_reset"),
             patch.object(cockpit, "_install_bindings"),
         ):
-            cockpit._build("C-x")
+            cockpit._build("C-x", 52)
 
         self.assertIn((("set-option", "-t", "mtmux", "prefix", "C-x"), {}), calls)
         self.assertIn((("set-option", "-t", "mtmux", "mouse", "on"), {}), calls)
         new_session = next(args for args, _ in calls if args[0] == "new-session")
         self.assertIn("C-x s  focus/open sidebar", new_session[-1])
+        split = tmux_out.call_args_list[1].args
+        self.assertEqual(split[split.index("-l") + 1], "52")
 
     def test_missing_sidebar_recreation_reapplies_mouse(self):
         with (
             patch.object(cockpit, "load_prefix", return_value="C-x"),
+            patch.object(cockpit, "load_sidebar_width", return_value=52),
             patch.object(cockpit, "_valid", return_value=False),
             patch.object(cockpit, "_option", side_effect=lambda name: "1" if name == "@mtmux_cockpit" else "%2"),
             patch.object(cockpit.tmux, "has_pane", return_value=True),

@@ -7,7 +7,8 @@ import tomllib
 from .names import Target, parse_target
 
 DEFAULT_PREFIX = "C-s"
-CONFIG_TEXT = f'hosts = []\nprefix = "{DEFAULT_PREFIX}"\n'
+DEFAULT_SIDEBAR_WIDTH = 40
+CONFIG_TEXT = f'hosts = []\nprefix = "{DEFAULT_PREFIX}"\nsidebar_width = {DEFAULT_SIDEBAR_WIDTH}\n'
 WRAPPER_TEXT = """unbind C-b
 set -g status off
 set -g mouse on
@@ -50,6 +51,14 @@ def load_prefix() -> str:
     if not isinstance(prefix, str) or not prefix or not prefix.isprintable() or any(char.isspace() for char in prefix):
         raise SystemExit(f"Invalid config {cfg}: prefix must be a non-empty, printable, whitespace-free string")
     return prefix
+
+
+def load_sidebar_width() -> int:
+    cfg, data = _load_config()
+    width = data.get("sidebar_width", DEFAULT_SIDEBAR_WIDTH)
+    if isinstance(width, bool) or not isinstance(width, int) or width < 1:
+        raise SystemExit(f"Invalid config {cfg}: sidebar_width must be a positive integer")
+    return width
 
 
 def load_hosts() -> list[str]:

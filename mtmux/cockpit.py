@@ -5,7 +5,7 @@ import shlex
 import shutil
 import sys
 
-from .config import ensure_config, load_prefix
+from .config import ensure_config, load_prefix, load_sidebar_width
 from . import tmux
 
 def help_command(prefix: str) -> str:
@@ -39,7 +39,6 @@ Examples
 SIDEBAR = f"{shlex.quote(sys.executable)} -m mtmux sidebar"
 FOCUS_SIDEBAR = f"{shlex.quote(sys.executable)} -m mtmux focus-sidebar"
 TARGET = f"{tmux.SESSION}:{tmux.WINDOW}"
-SIDEBAR_WIDTH = "40"
 
 
 def _option(name: str) -> str:
@@ -64,8 +63,8 @@ def _set_markers(left: str, right: str) -> None:
     tmux.tmux("set-option", "-t", tmux.SESSION, "@mtmux_right_pane", right)
 
 
-def _fix_layout(left: str) -> None:
-    tmux.tmux("set-window-option", "-t", TARGET, "main-pane-width", SIDEBAR_WIDTH)
+def _fix_layout(left: str, sidebar_width: int) -> None:
+    tmux.tmux("set-window-option", "-t", TARGET, "main-pane-width", str(sidebar_width))
     tmux.tmux("set-window-option", "-u", "-t", TARGET, "window-style")
     tmux.tmux("set-window-option", "-u", "-t", TARGET, "window-active-style")
     tmux.tmux("set-window-option", "-t", TARGET, "pane-border-style", "fg=terminal")
@@ -75,8 +74,8 @@ def _fix_layout(left: str) -> None:
     tmux.tmux("select-layout", "-t", TARGET, "main-vertical")
 
 
-def _install_layout_hooks(left: str) -> None:
-    command = f"set-window-option -t {TARGET} main-pane-width {SIDEBAR_WIDTH} ; select-pane -t {left} ; select-layout -t {TARGET} main-vertical"
+def _install_layout_hooks(left: str, sidebar_width: int) -> None:
+    command = f"set-window-option -t {TARGET} main-pane-width {sidebar_width} ; select-pane -t {left} ; select-layout -t {TARGET} main-vertical"
     tmux.tmux("set-hook", "-t", tmux.SESSION, "client-attached", command)
     tmux.tmux("set-hook", "-t", tmux.SESSION, "client-resized", command)
 
@@ -102,7 +101,7 @@ def _install_right_pane_reset(left: str, right: str, prefix: str) -> None:
     tmux.tmux("set-hook", "-t", tmux.SESSION, "pane-died", command)
 
 
-def _build(prefix: str) -> None:
+def _build(prefix: str, sidebar_width: int) -> None:
     _, wrapper = ensure_config()
     help_cmd = help_command(prefix)
     if _window_exists():
@@ -112,10 +111,10 @@ def _build(prefix: str) -> None:
     else:
         tmux.tmux("new-window", "-d", "-t", tmux.SESSION, "-n", tmux.WINDOW, help_cmd)
     right = tmux.out("display-message", "-p", "-t", TARGET, "#{pane_id}")
-    left = tmux.out("split-window", "-h", "-b", "-l", SIDEBAR_WIDTH, "-P", "-F", "#{pane_id}", "-t", right, SIDEBAR)
-    _fix_layout(left)
+    left = tmux.out("split-window", "-h", "-b", "-l", str(sidebar_width), "-P", "-F", "#{pane_id}", "-t", right, SIDEBAR)
+    _fix_layout(left, sidebar_width)
     _set_markers(left, right)
-    _install_layout_hooks(left)
+    _install_layout_hooks(left, sidebar_width)
     _install_bell_hook()
     _install_right_pane_reset(left, right, prefix)
     tmux.tmux("set-option", "-t", tmux.SESSION, "prefix", prefix)
@@ -126,11 +125,12 @@ def _build(prefix: str) -> None:
 
 def ensure_cockpit() -> None:
     prefix = load_prefix()
+    sidebar_width = load_sidebar_width()
     if _valid():
         left = _option("@mtmux_sidebar_pane")
         right = _option("@mtmux_right_pane")
-        _fix_layout(left)
-        _install_layout_hooks(left)
+        _fix_layout(left, sidebar_width)
+        _install_layout_hooks(left, sidebar_width)
         _install_bell_hook()
         _install_right_pane_reset(left, right, prefix)
         tmux.tmux("set-option", "-t", tmux.SESSION, "prefix", prefix)
@@ -140,17 +140,17 @@ def ensure_cockpit() -> None:
     if _option("@mtmux_cockpit") == "1":
         right = _option("@mtmux_right_pane")
         if right and tmux.has_pane(right):
-            left = tmux.out("split-window", "-h", "-b", "-l", SIDEBAR_WIDTH, "-P", "-F", "#{pane_id}", "-t", right, SIDEBAR)
-            _fix_layout(left)
+            left = tmux.out("split-window", "-h", "-b", "-l", str(sidebar_width), "-P", "-F", "#{pane_id}", "-t", right, SIDEBAR)
+            _fix_layout(left, sidebar_width)
             _set_markers(left, right)
-            _install_layout_hooks(left)
+            _install_layout_hooks(left, sidebar_width)
             _install_bell_hook()
             _install_right_pane_reset(left, right, prefix)
             tmux.tmux("set-option", "-t", tmux.SESSION, "prefix", prefix)
             _enable_mouse()
             _install_bindings(prefix)
             return
-    _build(prefix)
+    _build(prefix, sidebar_width)
 
 
 def _attach() -> int:
