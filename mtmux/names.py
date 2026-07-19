@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+from typing import Literal
 
 NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
@@ -21,9 +22,21 @@ def validate_host(value: str) -> str:
 
 @dataclass(frozen=True)
 class Target:
-    kind: str
+    kind: Literal["local", "ssh"]
     session: str
     host: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind not in ("local", "ssh"):
+            raise SystemExit(f"Invalid target kind: {self.kind!r}")
+        validate_name(self.session, "session")
+        if self.kind == "local":
+            if self.host is not None:
+                raise SystemExit("Local target must not have host")
+        elif self.host is None:
+            raise SystemExit("Invalid host: None")
+        else:
+            validate_host(self.host)
 
     def format(self) -> str:
         if self.kind == "local":
