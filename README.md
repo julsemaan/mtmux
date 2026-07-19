@@ -1,37 +1,52 @@
-# mtmux
+<p align="center">
+  <img src="logo.png" alt="mtmux logo" width="280">
+</p>
 
-Outer tmux cockpit for local and SSH tmux sessions.
+<h1 align="center">mtmux</h1>
 
-## Install
+<p align="center">
+  One terminal. Every tmux session, local or remote.
+</p>
+
+`mtmux` gives tmux a cockpit: a persistent sidebar for finding, opening, and switching between sessions across your machine and SSH hosts. Your sessions stay ordinary tmux sessions; mtmux simply puts them within reach.
+
+No more terminal-tab archaeology. Star the sessions that matter, jump between machines without leaving the keyboard, and notice bells from sessions that need you.
+
+## Why mtmux?
+
+- **One view across machines** — local and remote sessions live in the same sidebar.
+- **Fast context switches** — select a session and press `Enter`; no reconnecting or command recall.
+- **Nothing held hostage** — mtmux attaches to real tmux sessions, which keep running independently.
+- **Built for keyboard flow** — create, filter, switch, favorite, and kill sessions without reaching for the mouse.
+- **Attention where it matters** — bell activity makes waiting sessions visible.
+
+## Quick start
+
+Requires Python 3.11+, tmux, and OpenSSH.
 
 ```sh
+git clone https://github.com/julsemaan/mtmux.git
+cd mtmux
 pip install -e .
-```
-
-## Use
-
-```sh
 mtmux init
 mtmux cockpit
 ```
 
-`mtmux cockpit` creates/attaches outer tmux server:
+That opens an outer tmux workspace with the mtmux sidebar on the left and your selected session on the right. Press `Enter` on a session to step into it; press `C-s s` whenever you want the cockpit back.
 
-```sh
-tmux -L mtmux
-```
+## How it works
 
-Outer tmux owns layout only:
+`mtmux cockpit` creates or attaches to a dedicated outer tmux server (`tmux -L mtmux`). That outer layer owns only the layout:
 
 - outer prefix: `C-s`
 - focus/open sidebar: `C-s s`
 - outer status: off
-- left pane: `mtmux` sidebar, 40 cols by default
+- left pane: `mtmux` sidebar, 40 columns by default
 - right pane: selected local/remote tmux attach client
 
-Inner local/remote tmux sessions keep their normal prefix.
+Inner local and remote sessions keep their normal tmux prefix and remain alive when you switch away.
 
-## Config
+## Configuration
 
 Files live in `~/.config/mtmux/`:
 
@@ -78,7 +93,7 @@ Names must match:
 [A-Za-z0-9_.-]{1,64}
 ```
 
-## Commands
+## CLI commands
 
 ```sh
 mtmux list
