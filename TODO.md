@@ -1,5 +1,5 @@
 - [] The STARRED section at the top lacks polishing visually
-- [] Use the color palette of the logo in the sidebar
+- [x] Use the color palette of the logo in the sidebar
 - [x] Have some shortcuts to switch through starred sessions (prefix + number)
 - [] Allow ordering starred sessions
 - [x] The emoji for remote sessions looks more like ssh than remote
