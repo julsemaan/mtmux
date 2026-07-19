@@ -60,6 +60,9 @@ class FakeScreen:
             return self.keys.pop(0)
         return self.key
 
+    def redrawln(self, *args):
+        self.calls.append(("redrawln", *args))
+
     def refresh(self):
         self.calls.append(("refresh",))
 
@@ -241,6 +244,15 @@ class SidebarDrawTest(unittest.TestCase):
 
         self.assertEqual(screen.calls[0], ("erase",))
         self.assertNotIn(("clear",), screen.calls)
+
+    def test_title_forces_terminal_line_redraw_after_count_changes(self):
+        screen = FakeScreen(size=(5, 40))
+
+        _draw(screen, [Entry("work", "session", Target("local", "work"))], 0, "", "", dimmed=True)
+
+        title = next(i for i, call in enumerate(screen.calls) if call[0] == "addnstr" and call[1] == 0)
+        redraw = screen.calls.index(("redrawln", 0, 1))
+        self.assertLess(title, redraw)
 
     def test_normal_title_shows_brand_and_session_count(self):
         screen = FakeScreen(size=(5, 40))
