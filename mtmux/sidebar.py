@@ -411,7 +411,9 @@ def _draw_footer(
     lines = [line for logical_row in logical_rows for line in (textwrap.wrap(logical_row, width=width) or [""])]
     attr = _color("title") or (curses.A_BOLD | curses.A_REVERSE)
     for row, line in enumerate(lines, h - len(lines)):
-        stdscr.addnstr(row, 0, line.ljust(w - 1), w - 1, _fade(attr) if dimmed else attr)
+        row_attr = _fade(attr) if dimmed else attr
+        stdscr.addnstr(row, 0, line.ljust(w - 1), w - 1, row_attr)
+        stdscr.chgat(row, w - 1, 1, row_attr)
     return len(lines)
 
 

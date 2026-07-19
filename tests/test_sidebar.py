@@ -48,6 +48,9 @@ class FakeScreen:
     def addstr(self, *args):
         self.calls.append(("addstr", *args))
 
+    def chgat(self, *args):
+        self.calls.append(("chgat", *args))
+
     def attron(self, *args):
         self.calls.append(("attron", *args))
 
@@ -143,6 +146,14 @@ class SidebarDrawTest(unittest.TestCase):
 
         footer = [call[3].rstrip() for call in screen.calls if call[0] == "addnstr" and call[1] >= 5]
         self.assertEqual(footer, ["↵ switch  f star  n new  x kill", "/ filter  r refresh  ? help  q quit"])
+
+    def test_footer_fills_terminal_width(self):
+        screen = FakeScreen(size=(7, 60))
+
+        _draw(screen, [], 0, "", "")
+
+        footer_last_columns = [call for call in screen.calls if call[0] == "chgat" and call[1] >= 5]
+        self.assertEqual(footer_last_columns, [("chgat", 5, 59, 1, curses.A_BOLD | curses.A_REVERSE), ("chgat", 6, 59, 1, curses.A_BOLD | curses.A_REVERSE)])
 
     def test_status_replaces_only_primary_footer_row(self):
         screen = FakeScreen(size=(7, 60))
