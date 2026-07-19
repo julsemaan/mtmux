@@ -1,1 +1,2 @@
 - [] The STARRED section at the top lacks polishing visually
+- [] Use the color palette of the logo in the sidebar
