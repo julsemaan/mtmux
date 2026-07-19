@@ -29,6 +29,7 @@ class SidebarState:
     filtering: bool = False
     selected_target: Target | None = None
     selected_index: int = 0
+    selected_starred_section: bool = False
     pending_selection: Target | None = None
     favorites: set[Target] = field(default_factory=set)
     status: str = ""
@@ -160,11 +161,11 @@ def _selected_index(entries: list[Entry], target: Target | None) -> int:
     return 0
 
 
-def _target_index(entries: list[Entry], target: Target) -> int | None:
+def _target_index(entries: list[Entry], target: Target, starred_section: bool = False) -> int | None:
     matches = [i for i, entry in enumerate(entries) if entry.target == target]
     if not matches:
         return None
-    return next((i for i in matches if not entries[i].starred_section), matches[0])
+    return next((i for i in matches if entries[i].starred_section == starred_section), matches[0])
 
 
 def _sync_selection(state: SidebarState, entries: list[Entry]) -> None:
@@ -173,16 +174,19 @@ def _sync_selection(state: SidebarState, entries: list[Entry]) -> None:
         if index is not None:
             state.selected_index = index
             state.selected_target = state.pending_selection
+            state.selected_starred_section = entries[index].starred_section
             state.pending_selection = None
             return
     if state.selected_target is not None:
-        index = _target_index(entries, state.selected_target)
+        index = _target_index(entries, state.selected_target, state.selected_starred_section)
         if index is not None:
             state.selected_index = index
+            state.selected_starred_section = entries[index].starred_section
             return
     choices = _selectable(entries)
     state.selected_index = min(choices, key=lambda index: abs(index - state.selected_index)) if choices else 0
     state.selected_target = entries[state.selected_index].target if choices else None
+    state.selected_starred_section = entries[state.selected_index].starred_section if choices else False
 
 
 def _transition(
@@ -571,8 +575,10 @@ def run(stdscr: curses.window) -> None:
             bell_targets = _bell_targets(poller.snapshot)
             current_target = _current_target()
             if current_target != observed_target:
-                state.selected_target = current_target
-                _sync_selection(state, entries)
+                if current_target != state.selected_target:
+                    state.selected_target = current_target
+                    state.selected_starred_section = current_target in state.favorites
+                    _sync_selection(state, entries)
                 observed_target = current_target
             visible_bells = bell_targets - ({current_target} if current_target else set())
             if visible_bells - state.rang_bells:
@@ -607,6 +613,7 @@ def run(stdscr: curses.window) -> None:
                         continue
                     state.selected_index = index
                     state.selected_target = entries[index].target
+                    state.selected_starred_section = entries[index].starred_section
                     if mouse_state & (getattr(curses, "BUTTON1_DOUBLE_CLICKED", 0) or 0):
                         key = curses.KEY_ENTER
                     elif mouse_state & ((getattr(curses, "BUTTON1_CLICKED", 0) or 0) | (getattr(curses, "BUTTON1_PRESSED", 0) or 0)):
@@ -635,9 +642,11 @@ def run(stdscr: curses.window) -> None:
             elif key in (curses.KEY_DOWN, ord("j")) and selectable:
                 state.selected_index = selectable[(selectable.index(state.selected_index) + 1) % len(selectable)]
                 state.selected_target = entries[state.selected_index].target
+                state.selected_starred_section = entries[state.selected_index].starred_section
             elif key in (curses.KEY_UP, ord("k")) and selectable:
                 state.selected_index = selectable[(selectable.index(state.selected_index) - 1) % len(selectable)]
                 state.selected_target = entries[state.selected_index].target
+                state.selected_starred_section = entries[state.selected_index].starred_section
             elif key == ord("r"):
                 effect = _transition(state, "refresh")
             elif key == ord("/"):

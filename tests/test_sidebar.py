@@ -640,6 +640,55 @@ class SidebarDrawTest(unittest.TestCase):
         ):
             run(screen)
 
+    def test_switching_starred_entry_keeps_focus_in_starred_section(self):
+        old = Target("local", "old")
+        target = Target("local", "work")
+        current = [old]
+        entries = [
+            Entry("STARRED", "header"),
+            Entry("work", "session", target, starred=True, starred_section=True),
+            Entry("LOCAL", "header"),
+            Entry("work", "session", target, starred=True),
+            Entry("old", "session", old),
+        ]
+        selected = []
+        screen = FakeScreen([curses.KEY_UP, curses.KEY_UP, 10, ord("q")])
+
+        with (
+            patch("mtmux.sidebar.curses.curs_set"),
+            patch("mtmux.sidebar._init_colors"),
+            patch("mtmux.sidebar._entries", return_value=entries),
+            patch("mtmux.sidebar._bell_targets", return_value=set()),
+            patch("mtmux.sidebar._current_target", side_effect=lambda: current[0]),
+            patch("mtmux.sidebar._draw", side_effect=lambda _, __, index, *args: selected.append(index) or 2),
+            patch("mtmux.sidebar.cockpit.switch", side_effect=lambda *_: current.__setitem__(0, target)),
+        ):
+            run(screen)
+
+        self.assertEqual(selected, [4, 3, 1, 1])
+
+    def test_external_switch_to_favorite_focuses_starred_entry(self):
+        old = Target("local", "old")
+        target = Target("local", "work")
+        selected = []
+        screen = FakeScreen([-1, ord("q")])
+        poller = unittest.mock.Mock()
+        poller.snapshot = snapshot(local=("old", "work"))
+        poller.tick.return_value = False
+
+        with (
+            patch("mtmux.sidebar.DiscoveryPoller", return_value=poller),
+            patch("mtmux.sidebar.load_stars", return_value={target}),
+            patch("mtmux.sidebar.curses.curs_set"),
+            patch("mtmux.sidebar._init_colors"),
+            patch("mtmux.sidebar._bell_targets", return_value=set()),
+            patch("mtmux.sidebar._current_target", side_effect=[old, old, target]),
+            patch("mtmux.sidebar._draw", side_effect=lambda _, __, index, *args: selected.append(index) or 2),
+        ):
+            run(screen)
+
+        self.assertEqual(selected, [3, 1])
+
     def test_external_switch_updates_selected_sidebar_row(self):
         old = Target("local", "old")
         new = Target("local", "new")
