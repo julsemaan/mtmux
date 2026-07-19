@@ -3,18 +3,15 @@ from __future__ import annotations
 import curses
 import locale
 import os
-import re
 import socket
 import textwrap
 import time
 from dataclasses import dataclass
 
-from . import tmux
+from . import cockpit, sessions
 from .discovery import RemotePoller, RemoteSnapshot, local_bell_sessions, local_sessions
 from .config import load_hosts, load_stars, load_status_timeout, save_stars
-from .cockpit import right_pane
-from .names import Target, parse_target, validate_name
-from .switcher import create_local, create_remote, kill, show_help, switch
+from .names import Target, validate_name
 
 
 @dataclass(frozen=True)
@@ -76,8 +73,7 @@ def _fade(attr: int) -> int:
 
 
 def _pane_active() -> bool:
-    pane = os.environ.get("TMUX_PANE")
-    return not pane or tmux.out("display-message", "-p", "-t", pane, "#{pane_active}", check=False) == "1"
+    return cockpit.sidebar_active()
 
 
 def _entries(
@@ -148,22 +144,7 @@ def _selected_before(entries: list[Entry], index: int) -> int:
 
 
 def _current_target() -> Target | None:
-    try:
-        text = tmux.out("show-options", "-v", "-t", tmux.SESSION, "@mtmux_current_target", check=False)
-        if text:
-            return parse_target(text)
-    except SystemExit:
-        pass
-    try:
-        pane = right_pane()
-        cmd = tmux.out("display-message", "-p", "-t", pane or "", "#{pane_start_command}", check=False)
-        if match := re.search(r"ssh -t ([A-Za-z0-9_.-]+) .* -s ([A-Za-z0-9_.-]+)", cmd):
-            return Target("ssh", validate_name(match.group(2), "session"), validate_name(match.group(1), "host"))
-        if match := re.search(r"(?:^| )tmux new-session .* -s ([A-Za-z0-9_.-]+)", cmd):
-            return Target("local", validate_name(match.group(1), "session"))
-    except SystemExit:
-        pass
-    return None
+    return cockpit.current_target()
 
 
 def _prompt(stdscr: curses.window, prompt: str) -> str | None:
@@ -215,13 +196,12 @@ def _filter_key(filter_text: str, key: int) -> str | None:
 
 
 def _bell_targets(remote: dict[str, RemoteSnapshot | None]) -> set[str]:
-    target = tmux.out("show-options", "-v", "-t", tmux.SESSION, "@mtmux_bell_target", check=False)
     targets = {f"local:{session}" for session in local_bell_sessions()}
     for host, snapshot in remote.items():
         if snapshot and snapshot.available:
             targets.update(f"ssh:{host}:{session}" for session in snapshot.bells)
-    if target:
-        targets.add(target)
+    if target := cockpit.bell_target():
+        targets.add(target.format())
     return targets
 
 
@@ -567,7 +547,7 @@ def run(stdscr: curses.window) -> None:
                 curses.curs_set(1)
             elif key == ord("?"):
                 try:
-                    show_help()
+                    cockpit.show_help()
                     show_status("help opened")
                 except SystemExit as e:
                     show_status(str(e))
@@ -594,7 +574,7 @@ def run(stdscr: curses.window) -> None:
                     if entry.unavailable_favorite:
                         show_status(f"unavailable {entry.target.format()}")
                     elif entry.target:
-                        switch(entry.target)
+                        cockpit.switch(entry.target, sessions.attach_command(entry.target))
                         filter_text = ""
                         filtering = False
                         curses.curs_set(0)
@@ -607,7 +587,9 @@ def run(stdscr: curses.window) -> None:
                         if not name:
                             show_status("cancelled")
                             continue
-                        target = create_local(name) if entry.host == "" else create_remote(validate_name(entry.host or "", "host"), name)
+                        target = Target("local", name) if entry.host == "" else Target("ssh", name, entry.host)
+                        sessions.create(target)
+                        cockpit.switch(target, sessions.attach_command(target))
                         local[:] = local_sessions()
                         poller.refresh()
                         rebuild(target, selected)
@@ -627,7 +609,7 @@ def run(stdscr: curses.window) -> None:
                     show_status("cancelled")
                     continue
                 try:
-                    kill(entry.target)
+                    sessions.kill(entry.target)
                 except SystemExit as e:
                     show_status(str(e))
                     continue
@@ -645,7 +627,9 @@ def run(stdscr: curses.window) -> None:
                     if not name:
                         show_status("cancelled")
                         continue
-                    target = create_local(name) if host == "" else create_remote(validate_name(host or "", "host"), name)
+                    target = Target("local", name) if host == "" else Target("ssh", name, host)
+                    sessions.create(target)
+                    cockpit.switch(target, sessions.attach_command(target))
                     local[:] = local_sessions()
                     poller.refresh()
                     rebuild(target, selected)

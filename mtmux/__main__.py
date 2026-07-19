@@ -5,11 +5,10 @@ from pathlib import Path
 import subprocess
 import sys
 
-from .cockpit import cockpit, focus_sidebar
+from . import cockpit, sessions
 from .config import ensure_config
 from .discovery import discover
-from .names import parse_target, validate_host, validate_name
-from .switcher import create_local, create_remote, kill, switch
+from .names import Target, parse_target
 
 
 def placeholder(name: str) -> int:
@@ -54,24 +53,24 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Wrapper: {wrapper}")
         return 0
     if args.command == "cockpit":
-        return cockpit()
+        return cockpit.cockpit()
     if args.command == "focus-sidebar":
-        return focus_sidebar()
+        return cockpit.focus_sidebar()
     if args.command == "list":
         for item in discover():
             print(item.line())
         return 0
     if args.command == "switch":
-        switch(parse_target(args.target))
+        target = parse_target(args.target)
+        cockpit.switch(target, sessions.attach_command(target))
         return 0
     if args.command == "kill":
-        kill(parse_target(args.target))
+        sessions.kill(parse_target(args.target))
         return 0
     if args.command == "create":
-        if args.create_kind == "local":
-            create_local(validate_name(args.session, "session"))
-        else:
-            create_remote(validate_host(args.host), validate_name(args.session, "session"))
+        target = Target("local", args.session) if args.create_kind == "local" else Target("ssh", args.session, args.host)
+        sessions.create(target)
+        cockpit.switch(target, sessions.attach_command(target))
         return 0
     return placeholder(args.command)
 

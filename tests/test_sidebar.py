@@ -7,7 +7,6 @@ from mtmux.names import Target
 from mtmux.sidebar import (
     Entry,
     _bell_targets,
-    _current_target,
     _draw,
     _fade,
     _entries,
@@ -15,7 +14,6 @@ from mtmux.sidebar import (
     _entry_lines,
     _filter_key,
     _mouse_mask,
-    _pane_active,
     _prompt,
     _read_key,
     _selected_before,
@@ -83,14 +81,6 @@ class SidebarDrawTest(unittest.TestCase):
         self.assertEqual(faded & curses.A_COLOR, curses.A_COLOR)
         self.assertTrue(faded & curses.A_DIM)
         self.assertTrue(faded & curses.A_BOLD)
-
-    def test_pane_active_reads_current_tmux_pane_state(self):
-        with patch.dict("mtmux.sidebar.os.environ", {"TMUX_PANE": "%1"}), patch(
-            "mtmux.sidebar.tmux.out", return_value="1"
-        ) as out:
-            self.assertTrue(_pane_active())
-
-        out.assert_called_once_with("display-message", "-p", "-t", "%1", "#{pane_active}", check=False)
 
     def test_main_restarts_after_keyboard_interrupt(self):
         with patch("mtmux.sidebar.curses.wrapper", side_effect=[KeyboardInterrupt, None]) as wrapper:
@@ -357,23 +347,15 @@ class SidebarDrawTest(unittest.TestCase):
         self.assertEqual(_filter_key("ab", 127), "a")
         self.assertIsNone(_filter_key("ab", 10))
 
-    def test_bell_targets_reads_tmux_option_and_tmux_flags(self):
+    def test_bell_targets_combines_cockpit_local_and_remote_bells(self):
         with (
-            patch("mtmux.sidebar.tmux.out", return_value="local:work") as out,
-            patch("mtmux.sidebar.local_bell_sessions", return_value={"work"}),
+            patch("mtmux.sidebar.cockpit.bell_target", return_value=Target("local", "work")),
+            patch("mtmux.sidebar.local_bell_sessions", return_value={"notes"}),
         ):
             self.assertEqual(
                 _bell_targets({"dev": RemoteSnapshot(True, ("chat",), frozenset({"chat"}))}),
-                {"local:work", "ssh:dev:chat"},
+                {"local:work", "local:notes", "ssh:dev:chat"},
             )
-
-        out.assert_called_once_with("show-options", "-v", "-t", "mtmux", "@mtmux_bell_target", check=False)
-
-    def test_current_target_reads_tmux_option(self):
-        with patch("mtmux.sidebar.tmux.out", return_value="local:work") as out:
-            self.assertEqual(_current_target(), Target("local", "work"))
-
-        out.assert_called_once_with("show-options", "-v", "-t", "mtmux", "@mtmux_current_target", check=False)
 
     def test_draw_marks_matching_bell_target(self):
         screen = FakeScreen(size=(8, 40))
@@ -414,7 +396,7 @@ class SidebarDrawTest(unittest.TestCase):
         with (
             patch("mtmux.sidebar.time.monotonic", side_effect=[0, 4, 4, 8, 9]),
             patch("mtmux.sidebar.load_status_timeout", return_value=5),
-            patch("mtmux.sidebar.show_help"),
+            patch("mtmux.sidebar.cockpit.show_help"),
             patch("mtmux.sidebar.curses.curs_set"),
             patch("mtmux.sidebar._init_colors"),
             patch("mtmux.sidebar._entries", return_value=[Entry("work", "session", Target("local", "work"))]),
@@ -493,11 +475,12 @@ class SidebarDrawTest(unittest.TestCase):
             patch("mtmux.sidebar._entries", return_value=entries),
             patch("mtmux.sidebar._bell_targets", return_value=set()),
             patch("mtmux.sidebar._current_target", return_value=None),
-            patch("mtmux.sidebar.switch") as switch,
+            patch("mtmux.sidebar.cockpit.switch") as switch,
         ):
             run(screen)
 
-        switch.assert_called_once_with(Target("local", "two"))
+        target = Target("local", "two")
+        switch.assert_called_once_with(target, "env -u TMUX tmux -T clipboard new-session -A -s two")
 
     def test_double_click_reuses_switch_path(self):
         target = Target("local", "work")
@@ -511,11 +494,11 @@ class SidebarDrawTest(unittest.TestCase):
             patch("mtmux.sidebar._entries", return_value=[Entry("work", "session", target)]),
             patch("mtmux.sidebar._bell_targets", return_value=set()),
             patch("mtmux.sidebar._current_target", return_value=None),
-            patch("mtmux.sidebar.switch") as switch,
+            patch("mtmux.sidebar.cockpit.switch") as switch,
         ):
             run(screen)
 
-        switch.assert_called_once_with(target)
+        switch.assert_called_once_with(target, "env -u TMUX tmux -T clipboard new-session -A -s work")
 
     def test_wheel_reuses_wrapping_navigation(self):
         entries = [
@@ -533,11 +516,12 @@ class SidebarDrawTest(unittest.TestCase):
             patch("mtmux.sidebar._entries", return_value=entries),
             patch("mtmux.sidebar._bell_targets", return_value=set()),
             patch("mtmux.sidebar._current_target", return_value=None),
-            patch("mtmux.sidebar.switch") as switch,
+            patch("mtmux.sidebar.cockpit.switch") as switch,
         ):
             run(screen)
 
-        switch.assert_called_once_with(Target("local", "two"))
+        target = Target("local", "two")
+        switch.assert_called_once_with(target, "env -u TMUX tmux -T clipboard new-session -A -s two")
 
     def test_malformed_mouse_event_is_ignored(self):
         screen = FakeScreen([curses.KEY_MOUSE, ord("q")])
@@ -567,7 +551,7 @@ class SidebarDrawTest(unittest.TestCase):
             patch("mtmux.sidebar._entries", side_effect=entries),
             patch("mtmux.sidebar._bell_targets", return_value=set()),
             patch("mtmux.sidebar._current_target", return_value=None),
-            patch("mtmux.sidebar.switch"),
+            patch("mtmux.sidebar.cockpit.switch"),
         ):
             run(screen)
 
@@ -759,7 +743,7 @@ class SidebarDrawTest(unittest.TestCase):
             patch("mtmux.sidebar._init_colors"),
             patch("mtmux.sidebar._bell_targets", return_value=set()),
             patch("mtmux.sidebar._current_target", return_value=target),
-            patch("mtmux.sidebar.kill", side_effect=SystemExit("kill local:work failed: denied")),
+            patch("mtmux.sidebar.sessions.kill", side_effect=SystemExit("kill local:work failed: denied")),
         ):
             run(screen)
 
@@ -796,8 +780,8 @@ class SidebarDrawTest(unittest.TestCase):
             patch("mtmux.sidebar._init_colors"),
             patch("mtmux.sidebar._bell_targets", return_value=set()),
             patch("mtmux.sidebar._current_target", return_value=None),
-            patch("mtmux.sidebar.switch") as switch,
-            patch("mtmux.sidebar.kill") as kill,
+            patch("mtmux.sidebar.cockpit.switch") as switch,
+            patch("mtmux.sidebar.sessions.kill") as kill,
         ):
             run(screen)
 
@@ -894,9 +878,8 @@ class SidebarDrawTest(unittest.TestCase):
                     return True
             return False
 
-        def create_remote(host, session):
-            current[0] = Target("ssh", session, host)
-            return current[0]
+        def switch(target, command):
+            current[0] = target
 
         poller.tick.side_effect = tick
         with (
@@ -909,7 +892,8 @@ class SidebarDrawTest(unittest.TestCase):
             patch("mtmux.sidebar._init_colors"),
             patch("mtmux.sidebar._bell_targets", return_value=set()),
             patch("mtmux.sidebar._current_target", side_effect=lambda: current[0]),
-            patch("mtmux.sidebar.create_remote", side_effect=create_remote),
+            patch("mtmux.sidebar.sessions.create"),
+            patch("mtmux.sidebar.cockpit.switch", side_effect=switch),
             patch("mtmux.sidebar._draw", side_effect=lambda _, entries, selected, *args, **kwargs: selections.append(entries[selected].target) or 1),
         ):
             run(screen)
@@ -961,16 +945,6 @@ class SidebarDrawTest(unittest.TestCase):
                 run(screen)
 
         poller.close.assert_called_once_with()
-
-    def test_current_target_falls_back_to_right_pane_command(self):
-        def out(*args, **kwargs):
-            if args[0] == "show-options":
-                return ""
-            return "env -u TMUX tmux new-session -A -s work"
-
-        with patch("mtmux.sidebar.right_pane", return_value="%2"), patch("mtmux.sidebar.tmux.out", side_effect=out):
-            self.assertEqual(_current_target(), Target("local", "work"))
-
 
 if __name__ == "__main__":
     unittest.main()
