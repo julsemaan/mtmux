@@ -1,2 +1,2 @@
 [console_scripts]
-mtmux = mtmux.__main__:main
+mtmux = mtmux.__main__:run_cli

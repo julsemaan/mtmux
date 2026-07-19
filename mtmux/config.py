@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import tomllib
 
-from .names import Target, parse_target
+from .names import Target, parse_target, validate_host
 
 DEFAULT_PREFIX = "C-s"
 DEFAULT_SIDEBAR_WIDTH = 40
@@ -75,7 +75,10 @@ def load_hosts() -> list[str]:
     hosts = data.get("hosts", [])
     if not isinstance(hosts, list) or not all(isinstance(h, str) for h in hosts):
         raise SystemExit(f"Invalid config {cfg}: hosts must be a list of strings")
-    return hosts
+    try:
+        return [validate_host(host) for host in hosts]
+    except SystemExit as error:
+        raise SystemExit(f"Invalid config {cfg}: {error}") from error
 
 
 def load_stars() -> set[Target]:

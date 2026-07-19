@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
+import subprocess
 import sys
 
 from .cockpit import cockpit, focus_sidebar
 from .config import ensure_config
 from .discovery import discover
-from .names import parse_target, validate_name
+from .names import parse_target, validate_host, validate_name
 from .switcher import create_local, create_remote, kill, switch
 
 
@@ -69,10 +71,28 @@ def main(argv: list[str] | None = None) -> int:
         if args.create_kind == "local":
             create_local(validate_name(args.session, "session"))
         else:
-            create_remote(validate_name(args.host, "host"), validate_name(args.session, "session"))
+            create_remote(validate_host(args.host), validate_name(args.session, "session"))
         return 0
     return placeholder(args.command)
 
 
+def run_cli(argv: list[str] | None = None) -> int:
+    try:
+        return main(argv)
+    except subprocess.CalledProcessError as error:
+        command = Path(str(error.cmd[0] if isinstance(error.cmd, (list, tuple)) else error.cmd)).name
+        reason = (error.stderr or error.stdout or "").strip() or f"exit status {error.returncode}"
+        print(f"mtmux: {command} failed: {reason}", file=sys.stderr)
+    except OSError as error:
+        reason = error.strerror or str(error)
+        detail = f"{error.filename}: {reason}" if error.filename else reason
+        print(f"mtmux: {detail}", file=sys.stderr)
+    except UnicodeError as error:
+        print(f"mtmux: text decoding failed: {error}", file=sys.stderr)
+    except subprocess.SubprocessError as error:
+        print(f"mtmux: subprocess failed: {error}", file=sys.stderr)
+    return 1
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(run_cli())

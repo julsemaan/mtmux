@@ -12,6 +12,13 @@ def validate_name(value: str, label: str = "name") -> str:
     return value
 
 
+def validate_host(value: str) -> str:
+    validate_name(value, "host")
+    if value.startswith("-"):
+        raise SystemExit(f"Invalid host: {value!r}. Must not start with '-'")
+    return value
+
+
 @dataclass(frozen=True)
 class Target:
     kind: str
@@ -29,5 +36,5 @@ def parse_target(text: str) -> Target:
     if len(parts) == 2 and parts[0] == "local":
         return Target("local", validate_name(parts[1], "session"))
     if len(parts) == 3 and parts[0] == "ssh":
-        return Target("ssh", validate_name(parts[2], "session"), validate_name(parts[1], "host"))
+        return Target("ssh", validate_name(parts[2], "session"), validate_host(parts[1]))
     raise SystemExit("Invalid target. Use local:<session> or ssh:<host>:<session>")

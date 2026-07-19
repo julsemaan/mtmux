@@ -114,7 +114,8 @@ def _entries(
             out.append(Entry("connecting…", "unavailable", host=host))
             continue
         if not snapshot.available:
-            out.append(Entry("unavailable", "unavailable", host=host))
+            label = f"unavailable: {snapshot.error}" if snapshot.error else "unavailable"
+            out.append(Entry(label, "unavailable", host=host))
             continue
         for session in snapshot.sessions:
             if needle in session.lower():

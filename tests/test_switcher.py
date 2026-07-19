@@ -1,8 +1,9 @@
+import subprocess
 import unittest
 from unittest.mock import patch
 
 from mtmux.names import Target
-from mtmux.switcher import _command, create_local, kill, show_help, switch
+from mtmux.switcher import _command, create_local, create_remote, kill, show_help, switch
 
 
 class SwitcherCommandTest(unittest.TestCase):
@@ -62,7 +63,10 @@ class SwitcherCommandTest(unittest.TestCase):
         ):
             kill(Target("local", "work"))
 
-        self.assertEqual(calls, [((("tmux", "kill-session", "-t", "work"),), {"check": False, "env": {"PATH": "x"}})])
+        self.assertEqual(
+            calls,
+            [((("tmux", "kill-session", "-t", "work"),), {"check": True, "capture_output": True, "text": True, "env": {"PATH": "x"}})],
+        )
 
     def test_create_local_session_uses_default_server(self):
         calls = []
@@ -74,7 +78,10 @@ class SwitcherCommandTest(unittest.TestCase):
         ):
             create_local("work")
 
-        self.assertEqual(calls, [((["tmux", "new-session", "-Ad", "-s", "work"],), {"check": False, "env": {"PATH": "x"}})])
+        self.assertEqual(
+            calls,
+            [((["tmux", "new-session", "-Ad", "-s", "work"],), {"check": True, "capture_output": True, "text": True, "env": {"PATH": "x"}})],
+        )
 
     def test_kill_remote_session(self):
         calls = []
@@ -82,7 +89,28 @@ class SwitcherCommandTest(unittest.TestCase):
         with patch("mtmux.switcher.subprocess.run", side_effect=lambda *args, **kwargs: calls.append((args, kwargs))):
             kill(Target("ssh", "work", "dev"))
 
-        self.assertEqual(calls, [((("ssh", "dev", "tmux kill-session -t work"),), {"check": False})])
+        self.assertEqual(
+            calls,
+            [((("ssh", "dev", "tmux kill-session -t work"),), {"check": True, "capture_output": True, "text": True})],
+        )
+
+    def test_command_failures_exit_with_operation_target_and_reason(self):
+        cases = (
+            ("create", "local:work", lambda: create_local("work")),
+            ("create", "ssh:dev:work", lambda: create_remote("dev", "work")),
+            ("kill", "local:work", lambda: kill(Target("local", "work"))),
+            ("kill", "ssh:dev:work", lambda: kill(Target("ssh", "work", "dev"))),
+        )
+        error = subprocess.CalledProcessError(1, ["command"], stderr="permission denied\n")
+
+        for operation, target, action in cases:
+            with self.subTest(operation=operation, target=target):
+                with patch("mtmux.switcher.subprocess.run", side_effect=error):
+                    with self.assertRaisesRegex(
+                        SystemExit,
+                        rf"^{operation} {target} failed: permission denied$",
+                    ):
+                        action()
 
 
 if __name__ == "__main__":

@@ -46,24 +46,30 @@ def show_help() -> None:
     tmux.tmux("respawn-pane", "-k", "-t", pane, help_command(load_prefix()))
 
 
+def _run(operation: str, target: Target, command: list[str] | tuple[str, ...], **kwargs: object) -> None:
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True, **kwargs)
+    except subprocess.CalledProcessError as error:
+        reason = (error.stderr or "").strip() or f"exit status {error.returncode}"
+        raise SystemExit(f"{operation} {target.format()} failed: {reason}") from None
+
+
 def kill(target: Target) -> None:
     if target.kind == "local":
-        subprocess.run(("tmux", "kill-session", "-t", target.session), check=False, env=_default_server_env())
+        _run("kill", target, ("tmux", "kill-session", "-t", target.session), env=_default_server_env())
         return
-    subprocess.run(("ssh", target.host or "", f"tmux kill-session -t {shlex.quote(target.session)}"), check=False)
+    _run("kill", target, ("ssh", target.host or "", f"tmux kill-session -t {shlex.quote(target.session)}"))
 
 
 def create_local(session: str) -> Target:
-    from .names import Target
-    subprocess.run(["tmux", "new-session", "-Ad", "-s", session], check=False, env=_default_server_env())
     target = Target("local", session)
+    _run("create", target, ["tmux", "new-session", "-Ad", "-s", session], env=_default_server_env())
     switch(target)
     return target
 
 
 def create_remote(host: str, session: str) -> Target:
-    from .names import Target
-    subprocess.run(["ssh", host, f"tmux new-session -Ad -s {session}"], check=False)
     target = Target("ssh", session, host)
+    _run("create", target, ["ssh", host, f"tmux new-session -Ad -s {session}"])
     switch(target)
     return target

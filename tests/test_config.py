@@ -81,6 +81,13 @@ class ConfigTest(unittest.TestCase):
                 with self.assertRaisesRegex(SystemExit, "status_timeout must be a positive integer"):
                     config.load_status_timeout()
 
+    def test_option_like_hosts_are_rejected(self):
+        for host in ("-V", "-F", "--help"):
+            with self.subTest(host=host):
+                self.write_config(f'hosts = ["{host}"]\n')
+                with self.assertRaisesRegex(SystemExit, rf"Invalid config .*Invalid host: {host!r}"):
+                    config.load_hosts()
+
     def test_missing_stars_file_loads_empty(self):
         self.assertEqual(config.load_stars(), set())
 

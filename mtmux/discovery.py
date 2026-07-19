@@ -3,14 +3,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 import subprocess
+import tempfile
 import time
+from random import random
 from collections.abc import Callable, Iterable
 
 from .config import load_hosts
-from .names import validate_name
+from .names import validate_host, validate_name
 
 
-REMOTE_COMMAND = 'tmux list-windows -a -F "#{session_name}:#{window_bell_flag}:#{window_flags}" 2>/dev/null || true'
+REMOTE_COMMAND = 'tmux list-windows -a -F "#{session_name}:#{window_bell_flag}:#{window_flags}"'
+MAX_REMOTE_OUTPUT = 1024 * 1024
+SUCCESS_POLL_INTERVAL = 10
+MAX_FAILURE_POLL_INTERVAL = 60
 
 
 @dataclass(frozen=True)
@@ -33,9 +38,20 @@ class RemoteSnapshot:
     available: bool
     sessions: tuple[str, ...]
     bells: frozenset[str]
+    error: str | None = None
 
 
 UNAVAILABLE = RemoteSnapshot(False, (), frozenset())
+
+
+def _remote_result(returncode: int, stdout: str | None, stderr: str | None) -> RemoteSnapshot:
+    if stdout is None or stderr is None:
+        return RemoteSnapshot(False, (), frozenset(), "output exceeded 1 MiB")
+    if returncode == 0:
+        return _parse_remote_snapshot(stdout)
+    if returncode == 1 and stderr.startswith("no server running on "):
+        return _parse_remote_snapshot("")
+    return RemoteSnapshot(False, (), frozenset(), stderr.strip() or f"remote command exited {returncode}")
 
 
 def _valid_sessions(text: str) -> list[str]:
@@ -108,16 +124,29 @@ def _ssh_command(host: str) -> list[str]:
     return [
         "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
         "-o", "ServerAliveInterval=1", "-o", "ServerAliveCountMax=1",
-        validate_name(host, "host"), REMOTE_COMMAND,
+        validate_host(host), REMOTE_COMMAND,
     ]
 
 
+def _read_remote_output(output: object, fallback: str | None = None) -> str | None:
+    output.seek(0)
+    data = output.read(MAX_REMOTE_OUTPUT + 1)
+    if not data and fallback is not None:
+        data = fallback.encode()
+    if len(data) > MAX_REMOTE_OUTPUT:
+        return None
+    return data.decode(errors="replace")
+
+
 def remote_snapshot(host: str) -> RemoteSnapshot:
-    try:
-        proc = subprocess.run(_ssh_command(host), text=True, capture_output=True, timeout=10)
-    except subprocess.TimeoutExpired:
-        return UNAVAILABLE
-    return _parse_remote_snapshot(proc.stdout) if proc.returncode == 0 else UNAVAILABLE
+    with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+        try:
+            proc = subprocess.run(_ssh_command(host), stdout=output, stderr=errors, timeout=10)
+        except subprocess.TimeoutExpired:
+            return UNAVAILABLE
+        text = _read_remote_output(output, getattr(proc, "stdout", None))
+        error = _read_remote_output(errors, getattr(proc, "stderr", None))
+    return _remote_result(proc.returncode, text, error)
 
 
 def remote_sessions(host: str) -> list[str] | None:
@@ -133,7 +162,19 @@ def remote_bell_sessions(host: str) -> set[str]:
 class _Request:
     process: object
     started: float
-    timed_out: bool = False
+    output: object
+    errors: object
+
+
+def _stop_process(process: object) -> None:
+    if process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+    process.communicate()
 
 
 class RemotePoller:
@@ -143,38 +184,58 @@ class RemotePoller:
         *,
         popen: Callable[..., object] = subprocess.Popen,
         clock: Callable[[], float] = time.monotonic,
+        random: Callable[[], float] = random,
     ) -> None:
-        self.hosts = tuple(validate_name(host, "host") for host in hosts)
+        self.hosts = tuple(validate_host(host) for host in hosts)
         self.snapshots: dict[str, RemoteSnapshot | None] = dict.fromkeys(self.hosts)
         self._popen = popen
         self._clock = clock
+        self._random = random
         self._active: dict[str, _Request] = {}
         self._next = dict.fromkeys(self.hosts, 0.0)
+        self._failures = dict.fromkeys(self.hosts, 0)
+
+    def _schedule(self, host: str, now: float, available: bool) -> None:
+        if available:
+            self._failures[host] = 0
+            self._next[host] = now + SUCCESS_POLL_INTERVAL
+            return
+        self._failures[host] += 1
+        delay = min(2 ** self._failures[host], MAX_FAILURE_POLL_INTERVAL)
+        self._next[host] = now + delay * (0.5 + self._random() / 2)
 
     def tick(self) -> bool:
         now = self._clock()
         for host in self.hosts:
             if host not in self._active and now >= self._next[host]:
-                process = self._popen(_ssh_command(host), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                self._active[host] = _Request(process, now)
+                output = tempfile.TemporaryFile()
+                errors = tempfile.TemporaryFile()
+                process = self._popen(_ssh_command(host), stdout=output, stderr=errors)
+                self._active[host] = _Request(process, now, output, errors)
 
         changed = False
         for host, request in list(self._active.items()):
             returncode = request.process.poll()
             if returncode is None:
-                if not request.timed_out and now - request.started >= 10:
-                    request.process.terminate()
-                    request.timed_out = True
+                if now - request.started >= 10:
+                    _stop_process(request.process)
+                    request.output.close()
+                    request.errors.close()
                     changed |= self.snapshots[host] != UNAVAILABLE
                     self.snapshots[host] = UNAVAILABLE
-                    self._next[host] = now + 2
+                    del self._active[host]
+                    self._schedule(host, now, False)
                 continue
             stdout, _ = request.process.communicate()
-            snapshot = UNAVAILABLE if request.timed_out or returncode != 0 else _parse_remote_snapshot(stdout)
+            text = _read_remote_output(request.output, stdout)
+            error = _read_remote_output(request.errors)
+            request.output.close()
+            request.errors.close()
+            snapshot = _remote_result(returncode, text, error)
             changed |= snapshot != self.snapshots[host]
             self.snapshots[host] = snapshot
             del self._active[host]
-            self._next[host] = now + (1 if snapshot.available else 2)
+            self._schedule(host, now, snapshot.available)
         return changed
 
     def refresh(self) -> None:
@@ -185,9 +246,9 @@ class RemotePoller:
 
     def close(self) -> None:
         for request in self._active.values():
-            if request.process.poll() is None:
-                request.process.terminate()
-            request.process.communicate()
+            _stop_process(request.process)
+            request.output.close()
+            request.errors.close()
         self._active.clear()
 
 
