@@ -350,7 +350,7 @@ class SidebarDrawTest(unittest.TestCase):
         _draw(screen, [Entry("LOCAL", "header")], 0, "", "")
 
         footer = [call[3].rstrip() for call in screen.calls if call[0] == "addnstr" and call[1] >= 5]
-        self.assertEqual(footer, ["↵ switch  f star  J/K order  n new  x kill", "/ filter  r refresh  ? help  q quit"])
+        self.assertEqual(footer, ["↵ switch  f star  n new  x kill", "/ filter  r refresh  ? help  q quit"])
 
     def test_footer_fills_terminal_width(self):
         screen = FakeScreen(size=(7, 60))
@@ -604,7 +604,7 @@ class SidebarDrawTest(unittest.TestCase):
             run(screen)
 
         primary = [call[3].rstrip() for call in screen.calls if call[0] == "addnstr" and call[1] == 5]
-        self.assertEqual(primary, ["↵ switch  f star  J/K order  n new  x kill", "refreshing", "↵ switch  f star  J/K order  n new  x kill"])
+        self.assertEqual(primary, ["↵ switch  f star  n new  x kill", "refreshing", "↵ switch  f star  n new  x kill"])
 
     def test_later_status_resets_deadline(self):
         screen = FakeScreen([ord("r"), ord("?"), -1, -1, ord("q")], size=(7, 60))
@@ -622,7 +622,7 @@ class SidebarDrawTest(unittest.TestCase):
             run(screen)
 
         primary = [call[3].rstrip() for call in screen.calls if call[0] == "addnstr" and call[1] == 5]
-        self.assertEqual(primary[-3:], ["refreshing", "help opened", "↵ switch  f star  J/K order  n new  x kill"])
+        self.assertEqual(primary[-3:], ["refreshing", "help opened", "↵ switch  f star  n new  x kill"])
 
     def test_custom_status_timeout_controls_expiry(self):
         screen = FakeScreen([ord("r"), -1, -1, ord("q")], size=(7, 60))
@@ -641,7 +641,7 @@ class SidebarDrawTest(unittest.TestCase):
         load_timeout.assert_called_once_with()
         primary = [call[3].rstrip() for call in screen.calls if call[0] == "addnstr" and call[1] == 5]
         self.assertIn("refreshing", primary)
-        self.assertEqual(primary[-1], "↵ switch  f star  J/K order  n new  x kill")
+        self.assertEqual(primary[-1], "↵ switch  f star  n new  x kill")
 
     def test_run_sets_timeout_and_refreshes_on_timeout(self):
         screen = FakeScreen([-1, ord("q")])

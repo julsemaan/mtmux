@@ -519,7 +519,7 @@ def _draw_footer(
     if filtering:
         logical_rows = ["type to filter  backspace edit", f"esc clear  {'Enter' if _ascii() else '↵'} switch"]
     else:
-        logical_rows = [status or f"{'Enter' if _ascii() else '↵'} switch  f star  J/K order  n new  x kill", "/ filter  r refresh  ? help  q quit"]
+        logical_rows = [status or f"{'Enter' if _ascii() else '↵'} switch  f star  n new  x kill", "/ filter  r refresh  ? help  q quit"]
     width = max(1, w - 1)
     lines = [line for logical_row in logical_rows for line in (textwrap.wrap(logical_row, width=width) or [""])]
     attr = _color("title") or (curses.A_BOLD | curses.A_REVERSE)
