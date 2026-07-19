@@ -842,6 +842,44 @@ class SidebarDrawTest(unittest.TestCase):
         poller.close.assert_called_once_with()
         self.assertTrue(any(call[0] == "addnstr" and "connecting" in call[3] for call in screen.calls))
 
+    def test_new_remote_session_keeps_selection_until_refresh_then_selects_it(self):
+        screen = FakeScreen([curses.KEY_DOWN, 10, ord("n"), ord("e"), ord("w"), 10, -1, ord("q")], size=(10, 30))
+        poller = unittest.mock.Mock()
+        poller.snapshots = {"dev": RemoteSnapshot(True, ("work",), frozenset())}
+        current = [Target("ssh", "work", "dev")]
+        selections = []
+        refresh_ticks = [0]
+
+        def tick():
+            if current[0].session == "new":
+                refresh_ticks[0] += 1
+                if refresh_ticks[0] == 2:
+                    poller.snapshots["dev"] = RemoteSnapshot(True, ("work", "new"), frozenset())
+                    return True
+            return False
+
+        def create_remote(host, session):
+            current[0] = Target("ssh", session, host)
+            return current[0]
+
+        poller.tick.side_effect = tick
+        with (
+            patch("mtmux.sidebar.RemotePoller", return_value=poller),
+            patch("mtmux.sidebar.local_sessions", return_value=[]),
+            patch("mtmux.sidebar.load_stars", return_value=set()),
+            patch("mtmux.sidebar.curses.curs_set"),
+            patch("mtmux.sidebar.curses.echo"),
+            patch("mtmux.sidebar.curses.noecho"),
+            patch("mtmux.sidebar._init_colors"),
+            patch("mtmux.sidebar._bell_targets", return_value=set()),
+            patch("mtmux.sidebar._current_target", side_effect=lambda: current[0]),
+            patch("mtmux.sidebar.create_remote", side_effect=create_remote),
+            patch("mtmux.sidebar._draw", side_effect=lambda _, entries, selected, *args, **kwargs: selections.append(entries[selected].target) or 1),
+        ):
+            run(screen)
+
+        self.assertEqual(selections[-2:], [None, Target("ssh", "new", "dev")])
+
     def test_snapshot_completion_updates_remote_rows(self):
         screen = FakeScreen([-1, ord("q")], size=(10, 30))
         poller = unittest.mock.Mock()
