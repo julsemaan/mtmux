@@ -29,6 +29,7 @@ from mtmux.sidebar import (
     _fade,
     _entries,
     _entry_at_row,
+    _entry_attr,
     _entry_lines,
     _filter_key,
     _init_colors,
@@ -246,6 +247,7 @@ class SidebarColorTest(unittest.TestCase):
             ],
         )
         self.assertEqual(sidebar._COLOR["title"], (1 << 8) | curses.A_BOLD)
+        self.assertEqual(sidebar._COLOR["section"], (5 << 8) | curses.A_BOLD)
         self.assertEqual(sidebar._COLOR["hints"], (8 << 8) | curses.A_DIM)
 
     def test_8_color_terminal_uses_safe_palette(self):
@@ -272,6 +274,7 @@ class SidebarColorTest(unittest.TestCase):
                 call(8, curses.COLOR_CYAN, -1),
             ],
         )
+        self.assertEqual(sidebar._COLOR["section"], (5 << 8) | curses.A_BOLD)
 
     def test_no_color_terminal_leaves_palette_empty(self):
         sidebar._COLOR = {"title": 123}
@@ -860,7 +863,7 @@ class SidebarDrawTest(unittest.TestCase):
         ):
             run(screen)
 
-        self.assertEqual(selected, [3, 1])
+        self.assertEqual(selected, [4, 1])
 
     def test_external_switch_updates_selected_sidebar_row(self):
         old = Target("local", "old")
@@ -969,13 +972,70 @@ class SidebarDrawTest(unittest.TestCase):
 
         self.assertEqual([entry.shortcut_slot for entry in starred], [1, 2, 3, 4, 5, 6, 7, 8, 9, None])
 
+    def test_starred_sections_bound_favorites_and_full_list(self):
+        favorite = Target("local", "work")
+
+        entries = _entries("", snapshot(local=("work", "notes")), [favorite])
+
+        sections = [(index, entry.label) for index, entry in enumerate(entries) if entry.kind == "section"]
+        self.assertEqual(sections, [(0, "✱ STARRED"), (2, "ALL SESSIONS")])
+        self.assertTrue(entries[1].starred_section)
+        self.assertEqual(entries[3].kind, "header")
+
+    def test_sections_only_appear_when_visible_favorite_matches_filter(self):
+        favorite = Target("local", "work")
+
+        missing = _entries("notes", snapshot(local=("work", "notes")), [favorite])
+        matching = _entries("WORK", snapshot(local=("work", "notes")), [favorite])
+
+        self.assertFalse(any(entry.kind == "section" for entry in missing))
+        self.assertEqual([entry.kind for entry in matching[:3]], ["section", "session", "section"])
+
+    def test_section_divider_fills_width_and_has_ascii_fallback(self):
+        with patch("mtmux.sidebar._ascii", return_value=False):
+            unicode_line = _entry_lines(Entry("✱ STARRED", "section"), False, set(), None, 20)[0]
+        with patch("mtmux.sidebar._ascii", return_value=True):
+            ascii_line = _entry_lines(Entry("* STARRED", "section"), False, set(), None, 20)[0]
+
+        self.assertEqual(unicode_line, "✱ STARRED " + "─" * 10)
+        self.assertEqual(ascii_line, "* STARRED " + "-" * 10)
+        self.assertTrue(ascii_line.isascii())
+
+    def test_section_divider_truncates_safely_at_narrow_width(self):
+        with patch("mtmux.sidebar._ascii", return_value=False):
+            self.assertEqual(_entry_lines(Entry("ALL SESSIONS", "section"), False, set(), None, 5), ["ALL …"])
+
+    def test_sections_are_non_selectable_and_mouse_ignores_them(self):
+        entries = [
+            Entry("✱ STARRED", "section"),
+            Entry("work", "session", Target("local", "work"), starred_section=True),
+            Entry("ALL SESSIONS", "section"),
+        ]
+
+        self.assertEqual(sidebar._selectable(entries), [1])
+        self.assertIsNone(_entry_at_row(entries, 1, 1, 8, 1))
+        self.assertIsNone(_entry_at_row(entries, 1, 4, 8, 1))
+
+    def test_section_attr_uses_mint_bold_and_inactive_dim(self):
+        entry = Entry("STARRED", "section")
+        with patch.dict("mtmux.sidebar._COLOR", {"section": 123 | curses.A_BOLD}, clear=True):
+            active = _entry_attr(entry, False)
+            inactive = _entry_attr(entry, False, True)
+
+        self.assertEqual(active, 123 | curses.A_BOLD)
+        self.assertEqual(inactive, active | curses.A_DIM)
+
+    def test_section_attr_monochrome_fallback_is_bold(self):
+        with patch.dict("mtmux.sidebar._COLOR", {}, clear=True):
+            self.assertEqual(_entry_attr(Entry("STARRED", "section"), False), curses.A_BOLD)
+
     def test_starred_entries_are_first_ordered_duplicated_and_stale(self):
         discovered = snapshot(local=("work",), remotes={"dev": source("ssh", ("notes",), host="dev")})
         favorites = [Target("local", "work"), Target("ssh", "notes", "dev"), Target("ssh", "gone", "off")]
 
         entries = _entries("", discovered, favorites)
 
-        self.assertEqual([entry.label for entry in entries[:4]], ["STARRED", "work", "notes", "gone"])
+        self.assertEqual([entry.label for entry in entries[:5]], ["✱ STARRED", "work", "notes", "gone", "ALL SESSIONS"])
         self.assertTrue(all(entry.starred_section for entry in entries[1:4]))
         self.assertTrue(entries[3].unavailable_favorite)
         self.assertEqual(sum(entry.target == Target("local", "work") for entry in entries), 2)
@@ -1014,7 +1074,7 @@ class SidebarDrawTest(unittest.TestCase):
             "mtmux.sidebar._ascii", return_value=False
         ):
             self.assertEqual(_entries("missing", snapshot(), favorites)[0].label, "💻 laptop")
-            self.assertEqual(_entries("WORK", snapshot(), favorites)[0].label, "STARRED")
+            self.assertEqual(_entries("WORK", snapshot(), favorites)[0].label, "✱ STARRED")
 
     def test_title_excludes_star_duplicates_and_stale_favorites(self):
         screen = FakeScreen(size=(5, 40))

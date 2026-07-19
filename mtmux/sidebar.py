@@ -44,7 +44,7 @@ class SidebarState:
 @dataclass(frozen=True)
 class Entry:
     label: str
-    kind: str  # header | session | create | unavailable
+    kind: str  # section | header | session | create | unavailable
     target: Target | None = None
     host: str | None = None
     starred: bool = False
@@ -94,6 +94,7 @@ def _init_colors() -> None:
         for name, (pair, fg, bg, attr) in pairs.items():
             curses.init_pair(pair, fg, bg)
             _COLOR[name] = curses.color_pair(pair) | attr
+        _COLOR["section"] = _COLOR["create"] | curses.A_BOLD
     except curses.error:
         _COLOR = {}
 
@@ -121,13 +122,15 @@ def _entries(
 
     slots = {target: slot for slot, target in enumerate(favorites[:9], 1)}
     starred = [target for target in favorites if needle in target.session.lower()]
-    out = [Entry("STARRED", "header")] if starred else []
+    icons = _icons()
+    out = [Entry(f"{icons['starred']} STARRED", "section")] if starred else []
     hostname = socket.gethostname()
     out.extend(
         Entry(target.session, "session", target, target.host or hostname, True, target not in available, True, slots.get(target))
         for target in starred
     )
-    icons = _icons()
+    if starred:
+        out.append(Entry("ALL SESSIONS", "section"))
     out.append(Entry(f"{icons['local_header']} {hostname}", "header"))
     if not snapshot.local.available:
         label = f"unavailable: {snapshot.local.error}" if snapshot.local.error else "unavailable"
@@ -431,6 +434,11 @@ def _entry_lines(
 ) -> list[str]:
     icon = _icons()
     pointer = icon["selected"] if selected else " "
+    if entry.kind == "section":
+        rule = "-" if _ascii() else "─"
+        if len(entry.label) + 1 >= width:
+            return [_truncate(entry.label + " ", width)]
+        return [entry.label + " " + rule * (width - len(entry.label) - 1)]
     if entry.kind == "header":
         return [_truncate(entry.label, width)]
     if entry.kind == "session":
@@ -457,6 +465,8 @@ def _entry_lines(
 def _entry_attr(entry: Entry, selected: bool, dimmed: bool = False) -> int:
     if selected:
         attr = _color("selected") or curses.A_REVERSE
+    elif entry.kind == "section":
+        attr = _color("section") or curses.A_BOLD
     elif entry.kind == "header":
         attr = curses.A_BOLD
     elif entry.unavailable_favorite:

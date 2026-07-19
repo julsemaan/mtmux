@@ -1,4 +1,4 @@
-- [] The STARRED section at the top lacks polishing visually
+- [x] The STARRED section at the top lacks polishing visually
 - [x] Use the color palette of the logo in the sidebar
 - [x] Have some shortcuts to switch through starred sessions (prefix + number)
 - [x] Allow ordering starred sessions
