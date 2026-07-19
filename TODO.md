@@ -1,0 +1,1 @@
+- [] The STARRED section at the top lacks polishing visually
