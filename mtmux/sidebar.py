@@ -131,7 +131,8 @@ def _entries(
         for target in snapshot.local.sessions:
             if needle in target.session.lower():
                 out.append(Entry(target.session, "session", target, starred=target in favorites))
-    out.append(Entry("new local", "create", host=""))
+    if not filter_text:
+        out.append(Entry("new local", "create", host=""))
 
     for host, source in snapshot.remotes.items():
         out.append(Entry(f"{icons['remote_header']} {host}", "header"))
@@ -145,7 +146,8 @@ def _entries(
         for target in source.sessions:
             if needle in target.session.lower():
                 out.append(Entry(target.session, "session", target, host, target in favorites))
-        out.append(Entry(f"new on {host}", "create", host=host))
+        if not filter_text:
+            out.append(Entry(f"new on {host}", "create", host=host))
     return out
 
 

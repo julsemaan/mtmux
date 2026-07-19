@@ -4,4 +4,4 @@
 - [] Allow ordering starred sessions
 - [x] The emoji for remote sessions looks more like ssh than remote
 - [x] Refactor polling loop. The 500ms is tied to the bell refresh and to some UI features which means the UI refreshes slowly in some cases
-- [] When filtering rows, remove the "new" options
+- [x] When filtering rows, remove the "new" options

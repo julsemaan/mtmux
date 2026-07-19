@@ -889,6 +889,11 @@ class SidebarDrawTest(unittest.TestCase):
 
         self.assertEqual([entry.label for entry in entries if entry.kind == "header"], ["LOCAL laptop", "SSH dev"])
 
+    def test_filter_hides_new_session_options(self):
+        entries = _entries("work", snapshot(local=("work",), remotes={"dev": source("ssh", ("work",), host="dev")}))
+
+        self.assertFalse(any(entry.kind == "create" for entry in entries))
+
     def test_starred_filter_matches_session_name_and_hides_empty_header(self):
         favorites = {Target("ssh", "work", "dev")}
 
