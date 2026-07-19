@@ -9,3 +9,5 @@
 - [] Make targets for common tasks (dev install, tests, etc)
 - [] Handle persistent SSH connections via options in mtmux instead of forcing configuration in .ssh/config
 - [] Don't require double clicks to switch session, clicking once switches to it
+- [] When defocusing the left pane, it should highlight the currently active session
+- [] When cycling through the various sessions with the keyboard, it is not obvious which is active because we use the highlight to show the active one and the selection. Rethink it
