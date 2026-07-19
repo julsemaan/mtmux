@@ -75,15 +75,21 @@ def _init_colors() -> None:
             return
         curses.start_color()
         curses.use_default_colors()
+        if getattr(curses, "COLORS", 0) >= 256:
+            charcoal, teal, green, mint = 233, 30, 36, 79
+        else:
+            charcoal, teal, green, mint = (
+                curses.COLOR_BLACK, curses.COLOR_CYAN, curses.COLOR_GREEN, curses.COLOR_CYAN
+            )
         pairs = {
-            "title": (1, curses.COLOR_BLACK, curses.COLOR_CYAN, curses.A_BOLD),
-            "selected": (2, curses.COLOR_BLACK, curses.COLOR_CYAN, 0),
-            "local": (3, curses.COLOR_GREEN, -1, 0),
-            "remote": (4, curses.COLOR_BLUE, -1, 0),
-            "create": (5, curses.COLOR_CYAN, -1, 0),
+            "title": (1, mint, charcoal, curses.A_BOLD),
+            "selected": (2, charcoal, mint, 0),
+            "local": (3, green, -1, 0),
+            "remote": (4, teal, -1, 0),
+            "create": (5, mint, -1, 0),
             "unavailable": (6, curses.COLOR_YELLOW, -1, curses.A_DIM),
             "danger": (7, curses.COLOR_RED, -1, 0),
-            "hints": (8, -1, -1, curses.A_DIM),
+            "hints": (8, teal, -1, curses.A_DIM),
         }
         for name, (pair, fg, bg, attr) in pairs.items():
             curses.init_pair(pair, fg, bg)
@@ -385,7 +391,7 @@ def _draw_title(
 ) -> int:
     width = max(1, w)
     count = len({entry.target for entry in entries if entry.kind == "session" and not entry.unavailable_favorite})
-    brand = " MTMUX" if _ascii() else " 🖥️ MTMUX"
+    brand = " mtmux" if _ascii() else "  mtmux"
     left = f"{brand} / {filter_text}" if filtering else brand
     noun = ("match" if count == 1 else "matches") if filtering else ("session" if count == 1 else "sessions")
     right = f"{count} {noun}"

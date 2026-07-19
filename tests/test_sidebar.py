@@ -1,7 +1,8 @@
 import curses
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
+import mtmux.sidebar as sidebar
 from mtmux.discovery import SessionSnapshot, SourceSnapshot
 from mtmux.names import Target
 
@@ -30,6 +31,7 @@ from mtmux.sidebar import (
     _entry_at_row,
     _entry_lines,
     _filter_key,
+    _init_colors,
     _mouse_mask,
     _prompt,
     _read_key,
@@ -174,6 +176,80 @@ class SidebarStateTest(unittest.TestCase):
         switch.assert_not_called()
         self.assertIsNone(state.pending_selection)
         self.assertEqual(state.status, "create failed")
+
+
+class SidebarColorTest(unittest.TestCase):
+    def setUp(self):
+        original = sidebar._COLOR
+        self.addCleanup(setattr, sidebar, "_COLOR", original)
+        sidebar._COLOR = {}
+
+    def test_256_color_terminal_uses_logo_palette(self):
+        with (
+            patch("mtmux.sidebar.curses.has_colors", return_value=True),
+            patch("mtmux.sidebar.curses.start_color"),
+            patch("mtmux.sidebar.curses.use_default_colors"),
+            patch.object(curses, "COLORS", 256, create=True),
+            patch("mtmux.sidebar.curses.init_pair") as init_pair,
+            patch("mtmux.sidebar.curses.color_pair", side_effect=lambda pair: pair << 8),
+        ):
+            _init_colors()
+
+        self.assertEqual(
+            init_pair.call_args_list,
+            [
+                call(1, 79, 233),
+                call(2, 233, 79),
+                call(3, 36, -1),
+                call(4, 30, -1),
+                call(5, 79, -1),
+                call(6, curses.COLOR_YELLOW, -1),
+                call(7, curses.COLOR_RED, -1),
+                call(8, 30, -1),
+            ],
+        )
+        self.assertEqual(sidebar._COLOR["title"], (1 << 8) | curses.A_BOLD)
+        self.assertEqual(sidebar._COLOR["hints"], (8 << 8) | curses.A_DIM)
+
+    def test_8_color_terminal_uses_safe_palette(self):
+        with (
+            patch("mtmux.sidebar.curses.has_colors", return_value=True),
+            patch("mtmux.sidebar.curses.start_color"),
+            patch("mtmux.sidebar.curses.use_default_colors"),
+            patch.object(curses, "COLORS", 8, create=True),
+            patch("mtmux.sidebar.curses.init_pair") as init_pair,
+            patch("mtmux.sidebar.curses.color_pair", side_effect=lambda pair: pair << 8),
+        ):
+            _init_colors()
+
+        self.assertEqual(
+            init_pair.call_args_list,
+            [
+                call(1, curses.COLOR_CYAN, curses.COLOR_BLACK),
+                call(2, curses.COLOR_BLACK, curses.COLOR_CYAN),
+                call(3, curses.COLOR_GREEN, -1),
+                call(4, curses.COLOR_CYAN, -1),
+                call(5, curses.COLOR_CYAN, -1),
+                call(6, curses.COLOR_YELLOW, -1),
+                call(7, curses.COLOR_RED, -1),
+                call(8, curses.COLOR_CYAN, -1),
+            ],
+        )
+
+    def test_no_color_terminal_leaves_palette_empty(self):
+        sidebar._COLOR = {"title": 123}
+        with patch("mtmux.sidebar.curses.has_colors", return_value=False):
+            _init_colors()
+        self.assertEqual(sidebar._COLOR, {})
+
+    def test_curses_error_leaves_palette_empty(self):
+        sidebar._COLOR = {"title": 123}
+        with (
+            patch("mtmux.sidebar.curses.has_colors", return_value=True),
+            patch("mtmux.sidebar.curses.start_color", side_effect=curses.error),
+        ):
+            _init_colors()
+        self.assertEqual(sidebar._COLOR, {})
 
 
 class SidebarDrawTest(unittest.TestCase):
@@ -326,19 +402,19 @@ class SidebarDrawTest(unittest.TestCase):
         self.assertEqual(screen.calls[0], ("timeout", -1))
         self.assertEqual(screen.calls[-1], ("timeout", 50))
 
-    def test_title_adds_terminal_emoji_with_ascii_fallback(self):
+    def test_title_adds_terminal_icon_with_ascii_fallback(self):
         screen = FakeScreen(size=(5, 40))
 
         with patch("mtmux.sidebar._ascii", return_value=False):
             _draw(screen, [], 0, "ok", "")
         title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
-        self.assertTrue(title[3].startswith(" 🖥️ MTMUX"))
+        self.assertTrue(title[3].startswith("  mtmux"))
 
         screen = FakeScreen(size=(5, 40))
         with patch("mtmux.sidebar._ascii", return_value=True):
             _draw(screen, [], 0, "ok", "")
         title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
-        self.assertTrue(title[3].startswith(" MTMUX"))
+        self.assertTrue(title[3].startswith(" mtmux"))
 
     def test_draw_erases_without_forcing_full_repaint(self):
         screen = FakeScreen(size=(5, 40))
@@ -369,7 +445,7 @@ class SidebarDrawTest(unittest.TestCase):
         _draw(screen, entries, 1, "ok", "")
 
         title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
-        self.assertEqual(title[3], " 🖥️ MTMUX" + " " * 21 + "2 sessions")
+        self.assertEqual(title[3], "  mtmux" + " " * 22 + "2 sessions")
 
     def test_title_count_uses_singular_labels(self):
         screen = FakeScreen(size=(5, 40))
@@ -382,7 +458,7 @@ class SidebarDrawTest(unittest.TestCase):
         screen = FakeScreen(size=(5, 40))
         _draw(screen, entries, 0, "filtering", "work", filtering=True)
         filtering = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
-        self.assertEqual(filtering[3].rstrip(), " 🖥️ MTMUX / work                 1 match")
+        self.assertEqual(filtering[3].rstrip(), "  mtmux / work                  1 match")
 
     def test_filter_keeps_brand_query_count_and_cursor(self):
         screen = FakeScreen(size=(5, 40))
@@ -391,8 +467,8 @@ class SidebarDrawTest(unittest.TestCase):
         _draw(screen, entries, 0, "filtering", "work", filtering=True)
 
         title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
-        self.assertEqual(title[3].rstrip(), " 🖥️ MTMUX / work                 1 match")
-        self.assertIn(("move", 0, len(" 🖥️ MTMUX / work")), screen.calls)
+        self.assertEqual(title[3].rstrip(), "  mtmux / work                  1 match")
+        self.assertIn(("move", 0, len("  mtmux / work")), screen.calls)
 
     def test_empty_filter_has_visible_input_position(self):
         screen = FakeScreen(size=(5, 20))
@@ -400,8 +476,8 @@ class SidebarDrawTest(unittest.TestCase):
         _draw(screen, [], 0, "filtering", "", filtering=True)
 
         title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
-        self.assertTrue(title[3].startswith(" 🖥️ MTMUX / "))
-        self.assertIn(("move", 0, len(" 🖥️ MTMUX / ")), screen.calls)
+        self.assertTrue(title[3].startswith("  mtmux / "))
+        self.assertIn(("move", 0, len("  mtmux / ")), screen.calls)
 
     def test_narrow_filter_drops_count_before_clipping_query(self):
         screen = FakeScreen(size=(5, 16))
@@ -409,7 +485,7 @@ class SidebarDrawTest(unittest.TestCase):
         _draw(screen, [Entry("work", "session", Target("local", "work"))], 0, "filtering", "abcdefghij", filtering=True)
 
         title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
-        self.assertEqual(title[3], " 🖥️ MTMUX / abcd")
+        self.assertEqual(title[3], "  mtmux / abcde")
         self.assertNotIn("match", title[3])
         cursor = next(call for call in screen.calls if call[0] == "move")
         self.assertEqual(cursor, ("move", 0, 15))
