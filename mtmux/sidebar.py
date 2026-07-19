@@ -296,6 +296,7 @@ def _draw_title(
     title = f"{left}{right.rjust(width - len(left))}" if len(left) + len(right) < width else left
     attr = _color("title") or (curses.A_BOLD | curses.A_REVERSE)
     stdscr.addnstr(0, 0, title[:width].ljust(width), width, _fade(attr) if dimmed else attr)
+    stdscr.redrawln(0, 1)
     return min(width - 1, len(left))
 
 
