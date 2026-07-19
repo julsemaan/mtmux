@@ -1,7 +1,7 @@
 - [] The STARRED section at the top lacks polishing visually
 - [x] Use the color palette of the logo in the sidebar
 - [x] Have some shortcuts to switch through starred sessions (prefix + number)
-- [] Allow ordering starred sessions
+- [x] Allow ordering starred sessions
 - [x] The emoji for remote sessions looks more like ssh than remote
 - [x] Refactor polling loop. The 500ms is tied to the bell refresh and to some UI features which means the UI refreshes slowly in some cases
 - [x] When filtering rows, remove the "new" options

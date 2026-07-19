@@ -22,6 +22,7 @@ Navigation
 Session actions
   Enter  switch
   f      star/unstar session
+  K/J    move starred session up/down
   n      new session
   x      kill selected session
   /      filter sessions

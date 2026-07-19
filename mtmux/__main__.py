@@ -73,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
         cockpit.switch(target, sessions.attach_command(target))
         return 0
     if args.command == "switch-star":
-        favorites = sorted(load_stars(), key=lambda target: target.format())
+        favorites = load_stars()
         if args.slot > len(favorites):
             raise SystemExit(f"No starred session in slot {args.slot}")
         target = favorites[args.slot - 1]
