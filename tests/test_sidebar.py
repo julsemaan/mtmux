@@ -33,7 +33,6 @@ from mtmux.sidebar import (
     _mouse_mask,
     _prompt,
     _read_key,
-    _selected_before,
     _selected_index,
     _sync_selection,
     _transition,
@@ -150,6 +149,17 @@ class SidebarStateTest(unittest.TestCase):
         switch.assert_called_once_with(target, "attach")
         self.assertEqual(state.pending_selection, target)
         poller.refresh.assert_called_once_with()
+
+    def test_successful_kill_discards_target_before_refresh(self):
+        target = Target("ssh", "work", "dev")
+        state = SidebarState(selected_target=target)
+        poller = unittest.mock.Mock()
+
+        with patch("mtmux.sidebar.sessions.kill"):
+            _execute(Effect("kill", target=target), state, poller, 5)
+
+        poller.assert_has_calls([unittest.mock.call.discard(target), unittest.mock.call.refresh()])
+        self.assertIsNone(state.selected_target)
 
     def test_failed_create_neither_switches_nor_sets_pending_selection(self):
         target = Target("ssh", "new", "dev")
@@ -930,15 +940,6 @@ class SidebarDrawTest(unittest.TestCase):
         ]
 
         self.assertEqual(_selected_index(entries, Target("local", "missing")), 3)
-
-    def test_selected_before_picks_previous_selectable_row(self):
-        entries = [
-            Entry("LOCAL", "header"),
-            Entry("notes", "session", Target("local", "notes")),
-            Entry("new local", "create", host=""),
-        ]
-
-        self.assertEqual(_selected_before(entries, 2), 1)
 
     def test_pending_remote_does_not_block_quit_and_poller_closes(self):
         screen = FakeScreen([ord("q")], size=(10, 30))

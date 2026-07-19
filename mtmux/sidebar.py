@@ -157,12 +157,6 @@ def _selected_index(entries: list[Entry], target: Target | None) -> int:
     return 0
 
 
-def _selected_before(entries: list[Entry], index: int) -> int:
-    selectable = _selectable(entries)
-    previous = [i for i in selectable if i < index]
-    return previous[-1] if previous else (selectable[0] if selectable else 0)
-
-
 def _target_index(entries: list[Entry], target: Target) -> int | None:
     matches = [i for i, entry in enumerate(entries) if entry.target == target]
     if not matches:
@@ -235,6 +229,7 @@ def _execute(effect: Effect, state: SidebarState, poller: DiscoveryPoller, statu
             _set_status(state, f"created {effect.target.session}", status_timeout)
         elif effect.kind == "kill" and effect.target:
             sessions.kill(effect.target)
+            poller.discard(effect.target)
             poller.refresh()
             state.selected_target = None
             _set_status(state, f"killed {effect.target.format()}", status_timeout)
@@ -423,10 +418,6 @@ def _entry_lines(
     if entry.kind == "create":
         return [_truncate(f"{pointer} {icon['create']} {entry.label}", width)]
     return [_truncate(f"  {icon['unavailable']} {entry.label}", width)]
-
-
-def _entry_text(entry: Entry, selected: bool, bell_targets: set[Target], current_target: Target | None) -> str:
-    return _entry_lines(entry, selected, bell_targets, current_target, 10_000)[0]
 
 
 def _entry_attr(entry: Entry, selected: bool, dimmed: bool = False) -> int:

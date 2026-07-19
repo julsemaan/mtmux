@@ -11,11 +11,6 @@ from .discovery import discover
 from .names import Target, parse_target
 
 
-def placeholder(name: str) -> int:
-    print(f"mtmux {name}: not implemented yet")
-    return 0
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mtmux")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -82,7 +77,6 @@ def main(argv: list[str] | None = None) -> int:
         sessions.create(target)
         cockpit.switch(target, sessions.attach_command(target))
         return 0
-    return placeholder(args.command)
 
 
 def run_cli(argv: list[str] | None = None) -> int:

@@ -254,6 +254,31 @@ class DiscoveryPoller:
                 self._next[host] = now
         return changed
 
+    def discard(self, target: Target) -> None:
+        if target.kind == "local":
+            source = self.local
+            self.local = SourceSnapshot(
+                source.available,
+                tuple(item for item in source.sessions if item != target),
+                frozenset(item for item in source.bells if item != target),
+                source.error,
+            )
+            return
+        if target.host not in self.remotes:
+            return
+        if request := self._active.pop(target.host, None):
+            _stop_process(request.process)
+            request.output.close()
+            request.errors.close()
+        source = self.remotes[target.host]
+        if source:
+            self.remotes[target.host] = SourceSnapshot(
+                source.available,
+                tuple(item for item in source.sessions if item != target),
+                frozenset(item for item in source.bells if item != target),
+                source.error,
+            )
+
     def close(self) -> None:
         for request in self._active.values():
             _stop_process(request.process)

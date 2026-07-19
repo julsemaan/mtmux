@@ -255,6 +255,24 @@ class DiscoveryPollerTest(unittest.TestCase):
         self.assertTrue(process.killed)
         self.assertEqual(process.wait_timeouts, [1, None])
 
+    def test_discard_removes_target_and_cancels_stale_request(self):
+        completed = FakeProcess(0, "work:0:-\n")
+        stale = FakeProcess()
+        poller = self.make_poller(
+            ["dev"], popen=Mock(side_effect=[completed, stale]),
+            clock=Mock(side_effect=[0, 1, 1]),
+        )
+        target = Target("ssh", "work", "dev")
+        poller.tick()
+        poller.refresh()
+        poller.tick()
+
+        poller.discard(target)
+
+        self.assertNotIn(target, poller.snapshot.sessions)
+        self.assertTrue(stale.terminated)
+        self.assertTrue(stale.communicated)
+
     def test_close_terminates_and_reaps_active_process(self):
         process = FakeProcess()
         poller = self.make_poller(["dev"], popen=Mock(return_value=process), clock=Mock(return_value=0))
