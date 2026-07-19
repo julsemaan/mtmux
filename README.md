@@ -8,15 +8,15 @@
   One terminal. Every tmux session, local or remote.
 </p>
 
-`mtmux` gives tmux a cockpit: a persistent sidebar for finding, opening, and switching between sessions across your machine and SSH hosts. Your sessions stay ordinary tmux sessions; mtmux simply puts them within reach.
+`mtmux` runs inside your existing terminal and works on top of tmux. No new terminal app, no replacement tmux setup, no retraining your keyboard muscle memory. Keep your terminal, tmux configuration, keybindings, plugins, and workflows while adding a persistent sidebar for finding, opening, and switching between sessions across your machine and SSH hosts. Your sessions remain ordinary tmux sessions; mtmux simply puts them within reach.
 
-No more terminal-tab archaeology. Star the sessions that matter, jump between machines without leaving the keyboard, and notice bells from sessions that need you.
+Star important sessions, see at a glance which ones need attention, and jump between local and remote work—without hunting through terminal tabs.
 
 ## Why mtmux?
 
+- **Keep your terminal and tmux setup**: unlike cmux, mtmux runs inside your current terminal and builds on tmux instead of forcing a new terminal app. Your configuration, keybindings, plugins, and workflows keep working.
 - **One view across machines**: local and remote sessions live in the same sidebar.
-- **Fast context switches**: view which sessions require your attention via tmux bells then quickly get to them.
-- **Built for your existing flow**: mtmux works with your existing tmux configuration and workflows.
+- **Fast context switches**: see which sessions need your attention via tmux bells, then jump straight to them.
 
 ## Quick start
 
