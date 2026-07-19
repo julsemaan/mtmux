@@ -819,7 +819,7 @@ class SidebarDrawTest(unittest.TestCase):
         ):
             entries = _entries("", snapshot(remotes={"dev": None}))
 
-        self.assertEqual([entry.label for entry in entries if entry.kind == "header"], ["💻 laptop", "🔐 dev"])
+        self.assertEqual([entry.label for entry in entries if entry.kind == "header"], ["💻 laptop", "🌐 dev"])
 
     def test_ascii_headers_preserve_text_only_labels(self):
         with patch.dict("mtmux.sidebar.os.environ", {"MTMUX_ASCII": "1"}), patch(
@@ -865,7 +865,7 @@ class SidebarDrawTest(unittest.TestCase):
 
         with patch("mtmux.sidebar._ascii", return_value=False):
             self.assertEqual(_entry_lines(local, True, set(), None, 30), ["› ✱ dashboard", "    💻 laptop"])
-            self.assertEqual(_entry_lines(remote, False, set(), None, 30), ["  ✱ auth", "    🔐 dev"])
+            self.assertEqual(_entry_lines(remote, False, set(), None, 30), ["  ✱ auth", "    🌐 dev"])
 
         self.assertNotIn("local:", "".join(_entry_lines(local, True, set(), None, 30)))
         self.assertNotIn("ssh:", "".join(_entry_lines(remote, False, set(), None, 30)))
