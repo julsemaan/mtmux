@@ -748,6 +748,42 @@ class SidebarDrawTest(unittest.TestCase):
 
         save.assert_called_once_with({target})
 
+    def test_failed_kill_shows_error_and_keeps_sidebar_open(self):
+        screen = FakeScreen([ord("x"), ord("y"), ord("q")], size=(8, 60))
+        target = Target("local", "work")
+
+        with (
+            patch("mtmux.sidebar.local_sessions", return_value=["work"]),
+            patch("mtmux.sidebar.load_hosts", return_value=[]),
+            patch("mtmux.sidebar.curses.curs_set"),
+            patch("mtmux.sidebar._init_colors"),
+            patch("mtmux.sidebar._bell_targets", return_value=set()),
+            patch("mtmux.sidebar._current_target", return_value=target),
+            patch("mtmux.sidebar.kill", side_effect=SystemExit("kill local:work failed: denied")),
+        ):
+            run(screen)
+
+        self.assertTrue(any(call[0] == "addnstr" and "kill local:work failed: denied" in call[3] for call in screen.calls))
+
+    def test_refresh_reloads_local_sessions_and_preserves_selection(self):
+        screen = FakeScreen([ord("r"), ord("q")], size=(8, 60))
+        selected = Target("local", "work")
+        draws = []
+
+        with (
+            patch("mtmux.sidebar.local_sessions", side_effect=[["notes", "work"], ["work", "new"]]),
+            patch("mtmux.sidebar.load_hosts", return_value=[]),
+            patch("mtmux.sidebar.curses.curs_set"),
+            patch("mtmux.sidebar._init_colors"),
+            patch("mtmux.sidebar._bell_targets", return_value=set()),
+            patch("mtmux.sidebar._current_target", return_value=selected),
+            patch("mtmux.sidebar._draw", side_effect=lambda _, entries, index, *args, **kwargs: draws.append((entries[index].target, [entry.target for entry in entries])) or 1),
+        ):
+            run(screen)
+
+        self.assertEqual(draws[-1][0], selected)
+        self.assertIn(Target("local", "new"), draws[-1][1])
+
     def test_stale_favorite_cannot_switch_or_kill(self):
         screen = FakeScreen([10, ord("x"), ord("q")], size=(8, 30))
         target = Target("local", "gone")

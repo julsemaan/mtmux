@@ -558,7 +558,9 @@ def run(stdscr: curses.window) -> None:
             elif key in (curses.KEY_UP, ord("k")) and selectable:
                 selected = selectable[(selectable.index(selected) - 1) % len(selectable)]
             elif key == ord("r"):
+                local[:] = local_sessions()
                 poller.refresh()
+                rebuild(current_selection, selected)
                 show_status("refreshing")
             elif key == ord("/"):
                 filtering = True
@@ -624,7 +626,11 @@ def run(stdscr: curses.window) -> None:
                 if answer != ord("y"):
                     show_status("cancelled")
                     continue
-                kill(entry.target)
+                try:
+                    kill(entry.target)
+                except SystemExit as e:
+                    show_status(str(e))
+                    continue
                 local[:] = local_sessions()
                 poller.refresh()
                 rebuild(old_index=selected)
