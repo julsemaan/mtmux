@@ -26,15 +26,14 @@ Requires Python 3.11+, tmux, and OpenSSH.
 git clone https://github.com/julsemaan/mtmux.git
 cd mtmux
 pip install -e .
-mtmux init
 mtmux cockpit
 ```
 
-That opens an outer tmux workspace with the mtmux sidebar on the left and your selected session on the right. Press `Enter` on a session to step into it; press `C-s s` whenever you want the cockpit back.
+That opens an outer tmux workspace with the mtmux sidebar on the left and your selected session on the right. Press `Enter` on a session to step into it; press `q` to close the sidebar, press `C-s s` whenever you want it back.
 
 ## How it works
 
-`mtmux cockpit` creates or attaches to a dedicated outer tmux server (`tmux -L mtmux`). That outer layer owns only the layout:
+`mtmux cockpit` creates or attaches to a dedicated outer tmux server. That outer layer owns only the layout:
 
 - outer prefix: `C-s`
 - focus/open sidebar: `C-s s`
@@ -49,11 +48,13 @@ Inner local and remote sessions keep their normal tmux prefix and remain alive w
 Files live in `~/.config/mtmux/`:
 
 ```toml
-hosts = ["prod", "dev"]
+hosts = ["my-remote-machine"]
 prefix = "C-s"
 sidebar_width = 40
 status_timeout = 5
 ```
+
+### Prefix
 
 `prefix` accepts one non-empty, printable tmux key token without whitespace. `sidebar_width` sets left pane width in columns. `status_timeout` controls how many seconds sidebar feedback remains visible. Both numeric settings must be positive integers. Restart sidebar by rerunning `mtmux cockpit` after changing these values.
 
@@ -61,12 +62,14 @@ status_timeout = 5
 
 To restore old prefix, set `prefix = "C-g"` and rerun `mtmux cockpit`.
 
+### Remote hosts
+
 Hosts are SSH aliases only. Put users, ports, keys, proxies, IPv6, etc. in `~/.ssh/config`.
 
 For fast background discovery, let OpenSSH reuse one authenticated transport per host:
 
 ```sshconfig
-Host prod dev
+Host my-remote-machine
     ControlMaster auto
     ControlPersist 10m
     ControlPath ~/.ssh/mtmux-%C
@@ -74,18 +77,9 @@ Host prod dev
 
 `ControlMaster` makes first SSH process own shared connection. `ControlPersist` keeps it alive after command exits. Later discovery polls, switches, creates, and kills open logical channels without repeating TCP setup, key exchange, or authentication. Keep control socket in directory writable only by your user.
 
-Check multiplexing and compare first/subsequent connection times:
+`mtmux` doesn't provide SSH options for the hosts, they must be configured via your SSH config (defaults to `~/.ssh/config`)
 
-```sh
-ssh prod true
-ssh -O check prod
-time ssh prod true
-time ssh prod true
-```
-
-No mtmux multiplexing option exists; SSH aliases remain source of truth.
-
-Names must match:
+Names of the hosts must match:
 
 ```text
 [A-Za-z0-9_.-]{1,64}
