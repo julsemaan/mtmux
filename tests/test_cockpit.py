@@ -25,10 +25,41 @@ class CockpitLayoutTest(unittest.TestCase):
             ],
         )
 
+    def test_configure_cockpit_applies_complete_runtime_configuration(self):
+        with (
+            patch.object(cockpit, "_set_markers") as set_markers,
+            patch.object(cockpit, "_fix_layout") as fix_layout,
+            patch.object(cockpit, "_install_layout_hooks") as install_layout_hooks,
+            patch.object(cockpit, "_install_bell_hook") as install_bell_hook,
+            patch.object(cockpit, "_install_right_pane_reset") as install_right_pane_reset,
+            patch.object(cockpit, "_enable_mouse") as enable_mouse,
+            patch.object(cockpit, "_enable_clipboard") as enable_clipboard,
+            patch.object(cockpit, "_install_bindings") as install_bindings,
+            patch.object(cockpit.tmux, "tmux") as tmux_call,
+        ):
+            cockpit._configure_cockpit("%1", "%2", "C-x", 52)
+
+        set_markers.assert_called_once_with("%1", "%2")
+        fix_layout.assert_called_once_with("%1", 52)
+        install_layout_hooks.assert_called_once_with("%1", 52)
+        install_bell_hook.assert_called_once_with()
+        install_right_pane_reset.assert_called_once_with("%1", "%2", "C-x")
+        enable_mouse.assert_called_once_with()
+        enable_clipboard.assert_called_once_with()
+        install_bindings.assert_called_once_with("C-x")
+        self.assertEqual(
+            tmux_call.call_args_list,
+            [
+                unittest.mock.call("set-option", "-t", "mtmux", "prefix", "C-x"),
+                unittest.mock.call("set-option", "-t", "mtmux", "status", "off"),
+            ],
+        )
+
     def test_existing_cockpit_gets_layout_reapplied(self):
         with (
             patch.object(cockpit, "_valid", return_value=True),
             patch.object(cockpit, "_option", return_value="%1"),
+            patch.object(cockpit, "_set_markers") as set_markers,
             patch.object(cockpit, "_fix_layout") as fix_layout,
             patch.object(cockpit, "_install_layout_hooks") as install_layout_hooks,
             patch.object(cockpit, "_install_bindings") as install_bindings,
@@ -42,6 +73,7 @@ class CockpitLayoutTest(unittest.TestCase):
         ):
             cockpit.ensure_cockpit()
 
+        set_markers.assert_called_once_with("%1", "%1")
         fix_layout.assert_called_once_with("%1", 52)
         install_layout_hooks.assert_called_once_with("%1", 52)
         install_bell_hook.assert_called_once_with()
@@ -49,7 +81,13 @@ class CockpitLayoutTest(unittest.TestCase):
         install_bindings.assert_called_once_with("C-x")
         enable_mouse.assert_called_once_with()
         enable_clipboard.assert_called_once_with()
-        tmux_call.assert_called_once_with("set-option", "-t", "mtmux", "prefix", "C-x")
+        self.assertEqual(
+            tmux_call.call_args_list,
+            [
+                unittest.mock.call("set-option", "-t", "mtmux", "prefix", "C-x"),
+                unittest.mock.call("set-option", "-t", "mtmux", "status", "off"),
+            ],
+        )
 
     def test_layout_hooks_repin_sidebar_after_attach_or_resize(self):
         calls = []

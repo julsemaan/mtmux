@@ -105,6 +105,19 @@ def _install_right_pane_reset(left: str, right: str, prefix: str) -> None:
     tmux.tmux("set-hook", "-t", tmux.SESSION, "pane-died", command)
 
 
+def _configure_cockpit(left: str, right: str, prefix: str, sidebar_width: int) -> None:
+    _set_markers(left, right)
+    _fix_layout(left, sidebar_width)
+    _install_layout_hooks(left, sidebar_width)
+    _install_bell_hook()
+    _install_right_pane_reset(left, right, prefix)
+    tmux.tmux("set-option", "-t", tmux.SESSION, "prefix", prefix)
+    tmux.tmux("set-option", "-t", tmux.SESSION, "status", "off")
+    _enable_mouse()
+    _enable_clipboard()
+    _install_bindings(prefix)
+
+
 def _build(prefix: str, sidebar_width: int) -> None:
     _, wrapper = ensure_config()
     help_cmd = help_command(prefix)
@@ -116,16 +129,7 @@ def _build(prefix: str, sidebar_width: int) -> None:
         tmux.tmux("new-window", "-d", "-t", tmux.SESSION, "-n", tmux.WINDOW, help_cmd)
     right = tmux.out("display-message", "-p", "-t", TARGET, "#{pane_id}")
     left = tmux.out("split-window", "-h", "-b", "-l", str(sidebar_width), "-P", "-F", "#{pane_id}", "-t", right, SIDEBAR)
-    _fix_layout(left, sidebar_width)
-    _set_markers(left, right)
-    _install_layout_hooks(left, sidebar_width)
-    _install_bell_hook()
-    _install_right_pane_reset(left, right, prefix)
-    tmux.tmux("set-option", "-t", tmux.SESSION, "prefix", prefix)
-    tmux.tmux("set-option", "-t", tmux.SESSION, "status", "off")
-    _enable_mouse()
-    _enable_clipboard()
-    _install_bindings(prefix)
+    _configure_cockpit(left, right, prefix, sidebar_width)
 
 
 def ensure_cockpit() -> None:
@@ -134,28 +138,13 @@ def ensure_cockpit() -> None:
     if _valid():
         left = _option("@mtmux_sidebar_pane")
         right = _option("@mtmux_right_pane")
-        _fix_layout(left, sidebar_width)
-        _install_layout_hooks(left, sidebar_width)
-        _install_bell_hook()
-        _install_right_pane_reset(left, right, prefix)
-        tmux.tmux("set-option", "-t", tmux.SESSION, "prefix", prefix)
-        _enable_mouse()
-        _enable_clipboard()
-        _install_bindings(prefix)
+        _configure_cockpit(left, right, prefix, sidebar_width)
         return
     if _option("@mtmux_cockpit") == "1":
         right = _option("@mtmux_right_pane")
         if right and tmux.has_pane(right):
             left = tmux.out("split-window", "-h", "-b", "-l", str(sidebar_width), "-P", "-F", "#{pane_id}", "-t", right, SIDEBAR)
-            _fix_layout(left, sidebar_width)
-            _set_markers(left, right)
-            _install_layout_hooks(left, sidebar_width)
-            _install_bell_hook()
-            _install_right_pane_reset(left, right, prefix)
-            tmux.tmux("set-option", "-t", tmux.SESSION, "prefix", prefix)
-            _enable_mouse()
-            _enable_clipboard()
-            _install_bindings(prefix)
+            _configure_cockpit(left, right, prefix, sidebar_width)
             return
     _build(prefix, sidebar_width)
 
