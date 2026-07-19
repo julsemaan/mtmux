@@ -14,3 +14,8 @@ mtmux.egg-info/SOURCES.txt
 mtmux.egg-info/dependency_links.txt
 mtmux.egg-info/entry_points.txt
 mtmux.egg-info/top_level.txt
+tests/test_cockpit.py
+tests/test_config.py
+tests/test_discovery.py
+tests/test_sidebar.py
+tests/test_switcher.py
