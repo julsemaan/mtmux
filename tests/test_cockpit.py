@@ -116,7 +116,7 @@ class CockpitLayoutTest(unittest.TestCase):
 
         tmux_call.assert_called_once_with("set-option", "-s", "set-clipboard", "on")
 
-    def test_bindings_include_sidebar_focus_shortcut(self):
+    def test_bindings_include_sidebar_focus_and_numbered_star_shortcuts(self):
         calls = []
 
         with patch.object(cockpit.tmux, "tmux", side_effect=lambda *args, **kwargs: calls.append(args)):
@@ -127,6 +127,10 @@ class CockpitLayoutTest(unittest.TestCase):
             [
                 ("bind-key", "C-x", "send-prefix"),
                 ("bind-key", "s", "run-shell", cockpit.FOCUS_SIDEBAR),
+                *[
+                    ("bind-key", str(slot), "run-shell", f"{cockpit.shlex.quote(cockpit.sys.executable)} -m mtmux switch-star {slot}")
+                    for slot in range(1, 10)
+                ],
             ],
         )
 
@@ -149,6 +153,7 @@ class CockpitLayoutTest(unittest.TestCase):
         command = cockpit.help_command("C-x")
 
         self.assertIn("C-x s  focus/open sidebar", command)
+        self.assertIn("C-x 1-9  switch starred session", command)
         self.assertIn("C-x d  detach cockpit", command)
 
     def test_new_cockpit_sets_configured_prefix_and_startup_help(self):

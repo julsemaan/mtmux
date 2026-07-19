@@ -91,6 +91,7 @@ Names of the hosts must match:
 mtmux list
 mtmux switch local:<session>
 mtmux switch ssh:<host>:<session>
+mtmux switch-star <1-9>
 mtmux create local <session>
 mtmux create ssh <host> <session>
 mtmux kill local:<session>
@@ -102,6 +103,7 @@ Switching uses outer tmux `respawn-pane` on right pane. Real tmux sessions stay 
 ## Sidebar keys
 
 - `C-s s`: focus sidebar; recreates it if quit
+- `C-s 1`–`C-s 9`: switch directly to numbered starred target
 - `Enter`: switch selected target
 - `f`: star or unstar selected target
 - `n`: create session for selected group/target
@@ -111,7 +113,7 @@ Switching uses outer tmux `respawn-pane` on right pane. Real tmux sessions stay 
 - `?`: open help in right pane
 - `q`: quit sidebar only
 
-Starred sessions appear first, sorted by full target (`local:work`, `ssh:dev:work`), and remain in their LOCAL/SSH sections. Each STARRED entry uses two rows: session name first, then local hostname or SSH host. Long text is truncated with an ellipsis. Filtering matches session names. Favorites persist in `~/.config/mtmux/stars`; unavailable favorites remain selectable so `f` can remove them, while switch and kill report them unavailable. Set `MTMUX_ASCII=1` for text-only stars, source labels, and ellipses.
+Starred sessions appear first, sorted by full target (`local:work`, `ssh:dev:work`), and remain in their LOCAL/SSH sections. First nine receive stable shortcut numbers in that order; filtering preserves original numbers, and later stars remain sidebar-only. Prefix-number shortcuts load stars on every use, so star changes apply immediately without restarting cockpit. Each STARRED entry uses two rows: session name first, then local hostname or SSH host. Long text is truncated with an ellipsis. Filtering matches session names. Favorites persist in `~/.config/mtmux/stars`; unavailable favorites remain selectable so `f` can remove them, while sidebar switch and kill report them unavailable. Numbered shortcuts still attempt normal switch, whose tmux `new-session -A` behavior may recreate a missing session. Set `MTMUX_ASCII=1` for text-only stars, source labels, and ellipses.
 
 ## Mouse controls
 

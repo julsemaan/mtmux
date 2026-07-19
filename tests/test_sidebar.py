@@ -640,6 +640,27 @@ class SidebarDrawTest(unittest.TestCase):
         ):
             run(screen)
 
+    def test_external_switch_updates_selected_sidebar_row(self):
+        old = Target("local", "old")
+        new = Target("local", "new")
+        screen = FakeScreen([-1, 10, ord("q")])
+        poller = unittest.mock.Mock()
+        poller.snapshot = snapshot(local=("old", "new"))
+        poller.tick.return_value = False
+
+        with (
+            patch("mtmux.sidebar.DiscoveryPoller", return_value=poller),
+            patch("mtmux.sidebar.load_stars", return_value=set()),
+            patch("mtmux.sidebar.curses.curs_set"),
+            patch("mtmux.sidebar._init_colors"),
+            patch("mtmux.sidebar._bell_targets", return_value=set()),
+            patch("mtmux.sidebar._current_target", side_effect=[old, old, new, new]),
+            patch("mtmux.sidebar.cockpit.switch") as switch,
+        ):
+            run(screen)
+
+        switch.assert_called_once_with(new, "env -u TMUX tmux -T clipboard new-session -A -s new")
+
     def test_live_filter_refreshes_then_clears_after_switch(self):
         screen = FakeScreen([ord("/"), ord("w"), 10, ord("q")])
         calls = []
@@ -705,6 +726,27 @@ class SidebarDrawTest(unittest.TestCase):
         self.assertEqual(calls, ["", "w", ""])
         poller.close.assert_called_once_with()
 
+    def test_starred_slots_follow_global_sort_and_survive_filtering(self):
+        favorites = {
+            Target("ssh", "zeta", "dev"),
+            Target("local", "zeta"),
+            Target("local", "alpha"),
+        }
+
+        starred = [entry for entry in _entries("zeta", snapshot(), favorites) if entry.starred_section]
+
+        self.assertEqual(
+            [(entry.target.format(), entry.shortcut_slot) for entry in starred],
+            [("local:zeta", 2), ("ssh:dev:zeta", 3)],
+        )
+
+    def test_only_first_nine_starred_entries_get_slots(self):
+        favorites = {Target("local", f"session-{slot}") for slot in range(10)}
+
+        starred = [entry for entry in _entries("", snapshot(), favorites) if entry.starred_section]
+
+        self.assertEqual([entry.shortcut_slot for entry in starred], [1, 2, 3, 4, 5, 6, 7, 8, 9, None])
+
     def test_starred_entries_are_first_sorted_duplicated_and_stale(self):
         discovered = snapshot(local=("work",), remotes={"dev": source("ssh", ("notes",), host="dev")})
         favorites = {Target("ssh", "gone", "off"), Target("local", "work"), Target("ssh", "notes", "dev")}
@@ -756,6 +798,17 @@ class SidebarDrawTest(unittest.TestCase):
 
         title = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 0)
         self.assertTrue(title[3].endswith("1 session"))
+
+    def test_numbered_star_renders_slot_beside_star_in_unicode_and_ascii(self):
+        entry = Entry(
+            "work", "session", Target("local", "work"), host="laptop",
+            starred=True, starred_section=True, shortcut_slot=3,
+        )
+
+        with patch("mtmux.sidebar._ascii", return_value=False):
+            self.assertEqual(_entry_lines(entry, False, set(), None, 30)[0], "  ✱ 3 work")
+        with patch("mtmux.sidebar._ascii", return_value=True):
+            self.assertEqual(_entry_lines(entry, False, set(), None, 30)[0], "  * 3 work")
 
     def test_starred_entries_render_session_then_source_without_raw_targets(self):
         local = Entry("dashboard", "session", Target("local", "dashboard"), host="laptop", starred=True, starred_section=True)

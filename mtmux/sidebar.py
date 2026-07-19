@@ -45,6 +45,7 @@ class Entry:
     starred: bool = False
     unavailable_favorite: bool = False
     starred_section: bool = False
+    shortcut_slot: int | None = None
 
 
 _COLOR: dict[str, int] = {}
@@ -107,11 +108,13 @@ def _entries(
     favorites = favorites or set()
     available = set(snapshot.sessions)
 
-    starred = [target for target in sorted(favorites, key=lambda target: target.format()) if needle in target.session.lower()]
+    sorted_favorites = sorted(favorites, key=lambda target: target.format())
+    slots = {target: slot for slot, target in enumerate(sorted_favorites[:9], 1)}
+    starred = [target for target in sorted_favorites if needle in target.session.lower()]
     out = [Entry("STARRED", "header")] if starred else []
     hostname = socket.gethostname()
     out.extend(
-        Entry(target.session, "session", target, target.host or hostname, True, target not in available, True)
+        Entry(target.session, "session", target, target.host or hostname, True, target not in available, True, slots.get(target))
         for target in starred
     )
     icons = _icons()
@@ -404,6 +407,8 @@ def _entry_lines(
     if entry.kind == "session":
         kind = "unavailable" if entry.unavailable_favorite else ("remote" if entry.target and entry.target.kind == "ssh" else "local")
         session_icon = icon["starred"] if entry.starred else icon[kind]
+        if entry.shortcut_slot is not None:
+            session_icon += f" {entry.shortcut_slot}"
         bell = " BELL" if _ascii() else " 🔔"
         bell = bell if entry.target in bell_targets and entry.target != current_target else ""
         prefix = f"{pointer} {session_icon} "
@@ -542,6 +547,7 @@ def run(stdscr: curses.window) -> None:
     entries = _entries(state.filter_text, poller.snapshot, state.favorites)
     state.selected_index = _selected_index(entries, state.selected_target)
     _sync_selection(state, entries)
+    observed_target = state.selected_target
     stdscr.timeout(500)
 
     def show_status(message: str) -> None:
@@ -564,6 +570,10 @@ def run(stdscr: curses.window) -> None:
                 state.selected_index = selectable[0]
             bell_targets = _bell_targets(poller.snapshot)
             current_target = _current_target()
+            if current_target != observed_target:
+                state.selected_target = current_target
+                _sync_selection(state, entries)
+                observed_target = current_target
             visible_bells = bell_targets - ({current_target} if current_target else set())
             if visible_bells - state.rang_bells:
                 curses.beep()

@@ -15,6 +15,7 @@ def help_command(prefix: str) -> str:
 
 Navigation
   {prefix} s  focus/open sidebar
+  {prefix} 1-9  switch starred session
   ?      open help
   q      quit sidebar only
 
@@ -91,6 +92,8 @@ def _install_layout_hooks(left: str, sidebar_width: int) -> None:
 def _install_bindings(prefix: str) -> None:
     tmux.tmux("bind-key", prefix, "send-prefix")
     tmux.tmux("bind-key", "s", "run-shell", FOCUS_SIDEBAR)
+    for slot in range(1, 10):
+        tmux.tmux("bind-key", str(slot), "run-shell", f"{shlex.quote(sys.executable)} -m mtmux switch-star {slot}")
 
 
 def _enable_mouse() -> None:
