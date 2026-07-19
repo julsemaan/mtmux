@@ -494,7 +494,7 @@ def run(stdscr: curses.window) -> None:
             current_entry = entries[selected] if entries and selected < len(entries) else None
             current_selection = current_entry.target if current_entry else None
             if poller.tick():
-                rebuild(old_index=selected)
+                rebuild(_current_target(), selected)
             selectable = _selectable(entries)
             if selectable and selected not in selectable:
                 selected = selectable[0]
@@ -605,10 +605,10 @@ def run(stdscr: curses.window) -> None:
                         if not name:
                             show_status("cancelled")
                             continue
-                        create_local(name) if entry.host == "" else create_remote(validate_name(entry.host or "", "host"), name)
+                        target = create_local(name) if entry.host == "" else create_remote(validate_name(entry.host or "", "host"), name)
                         local[:] = local_sessions()
                         poller.refresh()
-                        rebuild()
+                        rebuild(target, selected)
                         show_status(f"created {name}")
                 except SystemExit as e:
                     show_status(str(e))
@@ -639,10 +639,10 @@ def run(stdscr: curses.window) -> None:
                     if not name:
                         show_status("cancelled")
                         continue
-                    create_local(name) if host == "" else create_remote(validate_name(host or "", "host"), name)
+                    target = create_local(name) if host == "" else create_remote(validate_name(host or "", "host"), name)
                     local[:] = local_sessions()
                     poller.refresh()
-                    rebuild()
+                    rebuild(target, selected)
                     show_status(f"created {name}")
                 except SystemExit as e:
                     show_status(str(e))
