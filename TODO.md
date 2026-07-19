@@ -8,3 +8,4 @@
 - [] Start designing agents status in the left bar based on julsemaan/astatus
 - [] Make targets for common tasks (dev install, tests, etc)
 - [] Handle persistent SSH connections via options in mtmux instead of forcing configuration in .ssh/config
+- [] Don't require double clicks to switch session, clicking once switches to it
