@@ -166,9 +166,11 @@ class DiscoveryPoller:
         popen: Callable[..., object] = subprocess.Popen,
         clock: Callable[[], float] = time.monotonic,
         random: Callable[[], float] = random,
+        local: Callable[[], SourceSnapshot] | None = None,
     ) -> None:
         self.hosts = tuple(validate_host(host) for host in hosts)
-        self.local = local_snapshot()
+        self._local_snapshot = local or local_snapshot
+        self.local = self._local_snapshot()
         self.remotes: dict[str, SourceSnapshot | None] = dict.fromkeys(self.hosts)
         self._popen = popen
         self._clock = clock
@@ -221,7 +223,9 @@ class DiscoveryPoller:
 
     def tick(self) -> bool:
         now = self._clock()
-        changed = False
+        snapshot = self._local_snapshot()
+        changed = snapshot != self.local
+        self.local = snapshot
         for host in self.hosts:
             if host not in self._active and now >= self._next[host]:
                 changed |= self._start_request(host, now)
@@ -243,7 +247,7 @@ class DiscoveryPoller:
         return changed
 
     def refresh(self) -> bool:
-        snapshot = local_snapshot()
+        snapshot = self._local_snapshot()
         changed = snapshot != self.local
         self.local = snapshot
         now = self._clock()

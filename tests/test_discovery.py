@@ -139,8 +139,15 @@ class TerminateIgnoringProcess(FakeProcess):
 
 class DiscoveryPollerTest(unittest.TestCase):
     def make_poller(self, hosts, **kwargs):
-        with patch("mtmux.discovery.local_snapshot", return_value=EMPTY_LOCAL):
-            return DiscoveryPoller(hosts, **kwargs)
+        return DiscoveryPoller(hosts, local=kwargs.pop("local", Mock(return_value=EMPTY_LOCAL)), **kwargs)
+
+    def test_tick_refreshes_local_bells(self):
+        bell = Target("local", "work")
+        local = Mock(side_effect=[EMPTY_LOCAL, SourceSnapshot(True, (bell,), frozenset({bell}))])
+        poller = self.make_poller([], local=local)
+
+        self.assertTrue(poller.tick())
+        self.assertEqual(poller.snapshot.bells, frozenset({bell}))
 
     def test_pending_process_does_not_duplicate_or_block(self):
         process = FakeProcess()
@@ -174,12 +181,14 @@ class DiscoveryPollerTest(unittest.TestCase):
     def test_refresh_updates_local_and_retries_remote_immediately(self):
         clock = Mock(side_effect=[0, 1, 1])
         popen = Mock(side_effect=[FakeProcess(255), FakeProcess(0)])
-        poller = self.make_poller(["dev"], popen=popen, clock=clock, random=Mock(return_value=1))
         local = SourceSnapshot(True, (Target("local", "new"),), frozenset())
+        poller = self.make_poller(
+            ["dev"], popen=popen, clock=clock, random=Mock(return_value=1),
+            local=Mock(side_effect=[EMPTY_LOCAL, EMPTY_LOCAL, local, local]),
+        )
 
         poller.tick()
-        with patch("mtmux.discovery.local_snapshot", return_value=local):
-            self.assertTrue(poller.refresh())
+        self.assertTrue(poller.refresh())
         poller.tick()
 
         self.assertEqual(poller.snapshot.local, local)

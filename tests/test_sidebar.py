@@ -563,6 +563,26 @@ class SidebarDrawTest(unittest.TestCase):
 
         beep.assert_called_once_with()
 
+    def test_run_propagates_new_local_snapshot_bell_to_sidebar(self):
+        screen = FakeScreen([ord("q")], size=(8, 40))
+        target = Target("local", "work")
+        idle = source("local", ("work",))
+        ringing = source("local", ("work",), ("work",))
+
+        with (
+            patch("mtmux.discovery.local_snapshot", side_effect=[idle, ringing]),
+            patch("mtmux.sidebar.load_hosts", return_value=[]),
+            patch("mtmux.sidebar.curses.curs_set"),
+            patch("mtmux.sidebar.curses.beep") as beep,
+            patch("mtmux.sidebar._init_colors"),
+            patch("mtmux.sidebar.cockpit.bell_target", return_value=None),
+            patch("mtmux.sidebar._current_target", return_value=Target("local", "shell")),
+        ):
+            run(screen)
+
+        beep.assert_called_once_with()
+        self.assertTrue(any(call[0] == "addnstr" and "🔔" in call[3] for call in screen.calls))
+
     def test_single_click_selects_row(self):
         entries = [
             Entry("LOCAL", "header"),
@@ -965,7 +985,12 @@ class SidebarDrawTest(unittest.TestCase):
         draws = []
 
         with (
-            patch("mtmux.discovery.local_snapshot", side_effect=[source("local", ("notes", "work")), source("local", ("work", "new"))]),
+            patch("mtmux.discovery.local_snapshot", side_effect=[
+                source("local", ("notes", "work")),
+                source("local", ("work", "new")),
+                source("local", ("work", "new")),
+                source("local", ("work", "new")),
+            ]),
             patch("mtmux.sidebar.load_hosts", return_value=[]),
             patch("mtmux.sidebar.curses.curs_set"),
             patch("mtmux.sidebar._init_colors"),
