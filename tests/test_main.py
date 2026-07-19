@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from mtmux.__main__ import main
+from mtmux.discovery import SessionSnapshot, SourceSnapshot
 from mtmux.names import Target
 
 
@@ -26,6 +27,22 @@ class MainTest(unittest.TestCase):
         create.assert_called_once_with(target)
         attach_command.assert_called_once_with(target)
         switch.assert_called_once_with(target, "attach")
+
+    def test_list_uses_session_snapshot_and_displays_local_errors(self):
+        snapshot = SessionSnapshot(
+            SourceSnapshot(False, (), frozenset(), "permission denied"),
+            {
+                "dev": SourceSnapshot(True, (Target("ssh", "work", "dev"),), frozenset()),
+                "off": SourceSnapshot(False, (), frozenset(), "offline"),
+            },
+        )
+        with patch("mtmux.__main__.discover", return_value=snapshot), patch("builtins.print") as print_:
+            main(["list"])
+
+        self.assertEqual(
+            [call.args[0] for call in print_.call_args_list],
+            ["local unavailable: permission denied", "ssh:dev:work", "ssh:off unavailable"],
+        )
 
     def test_failed_create_never_switches(self):
         with (

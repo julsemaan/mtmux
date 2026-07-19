@@ -2,8 +2,23 @@ import curses
 import unittest
 from unittest.mock import patch
 
-from mtmux.discovery import RemoteSnapshot
+from mtmux.discovery import SessionSnapshot, SourceSnapshot
 from mtmux.names import Target
+
+
+def source(kind, sessions=(), bells=(), host=None, available=True, error=None):
+    targets = tuple(Target(kind, session, host) for session in sessions)
+    bell_targets = frozenset(Target(kind, session, host) for session in bells)
+    return SourceSnapshot(available, targets, bell_targets, error)
+
+
+def snapshot(local=(), remotes=None, local_bells=(), local_available=True, local_error=None):
+    return SessionSnapshot(
+        source("local", local, local_bells, available=local_available, error=local_error),
+        remotes or {},
+    )
+
+
 from mtmux.sidebar import (
     Entry,
     _bell_targets,
@@ -348,20 +363,22 @@ class SidebarDrawTest(unittest.TestCase):
         self.assertIsNone(_filter_key("ab", 10))
 
     def test_bell_targets_combines_cockpit_local_and_remote_bells(self):
-        with (
-            patch("mtmux.sidebar.cockpit.bell_target", return_value=Target("local", "work")),
-            patch("mtmux.sidebar.local_bell_sessions", return_value={"notes"}),
-        ):
+        discovered = snapshot(
+            local=("notes",),
+            local_bells=("notes",),
+            remotes={"dev": source("ssh", ("chat",), ("chat",), "dev")},
+        )
+        with patch("mtmux.sidebar.cockpit.bell_target", return_value=Target("local", "work")):
             self.assertEqual(
-                _bell_targets({"dev": RemoteSnapshot(True, ("chat",), frozenset({"chat"}))}),
-                {"local:work", "local:notes", "ssh:dev:chat"},
+                _bell_targets(discovered),
+                {Target("local", "work"), Target("local", "notes"), Target("ssh", "chat", "dev")},
             )
 
     def test_draw_marks_matching_bell_target(self):
         screen = FakeScreen(size=(8, 40))
         target = Target("ssh", "work", "dev")
 
-        _draw(screen, [Entry("work", "session", target)], 0, "", "", bell_targets={"ssh:dev:work"})
+        _draw(screen, [Entry("work", "session", target)], 0, "", "", bell_targets={target})
 
         self.assertTrue(any(call[0] == "addnstr" and "work 🔔" in call[3] for call in screen.calls))
 
@@ -369,7 +386,7 @@ class SidebarDrawTest(unittest.TestCase):
         screen = FakeScreen()
         target = Target("local", "work")
 
-        _draw(screen, [Entry("work", "session", target)], 0, "", "", bell_targets={"local:work"}, current_target=target)
+        _draw(screen, [Entry("work", "session", target)], 0, "", "", bell_targets={target}, current_target=target)
 
         self.assertFalse(any(call[0] == "addnstr" and "🔔" in call[3] for call in screen.calls))
 
@@ -452,7 +469,7 @@ class SidebarDrawTest(unittest.TestCase):
             patch("mtmux.sidebar.curses.beep") as beep,
             patch("mtmux.sidebar._init_colors"),
             patch("mtmux.sidebar._entries", return_value=[Entry("work", "session", target)]),
-            patch("mtmux.sidebar._bell_targets", return_value={"local:work"}),
+            patch("mtmux.sidebar._bell_targets", return_value={target}),
             patch("mtmux.sidebar._current_target", return_value=Target("local", "shell")),
         ):
             run(screen)
@@ -581,7 +598,7 @@ class SidebarDrawTest(unittest.TestCase):
         screen.getch = unittest.mock.Mock(side_effect=[ord("/"), ord("w"), KeyboardInterrupt, ord("q")])
         calls = []
         poller = unittest.mock.Mock()
-        poller.snapshots = {}
+        poller.snapshot = snapshot()
         poller.tick.return_value = False
 
         def entries(filter_text="", *_):
@@ -589,7 +606,7 @@ class SidebarDrawTest(unittest.TestCase):
             return [Entry("LOCAL", "header"), Entry("work", "session", Target("local", "work"))]
 
         with (
-            patch("mtmux.sidebar.RemotePoller", return_value=poller),
+            patch("mtmux.sidebar.DiscoveryPoller", return_value=poller),
             patch("mtmux.sidebar.curses.curs_set"),
             patch("mtmux.sidebar._init_colors"),
             patch("mtmux.sidebar._entries", side_effect=entries),
@@ -602,11 +619,10 @@ class SidebarDrawTest(unittest.TestCase):
         poller.close.assert_called_once_with()
 
     def test_starred_entries_are_first_sorted_duplicated_and_stale(self):
-        local = ["work"]
-        remote = {"dev": RemoteSnapshot(True, ("notes",), frozenset())}
+        discovered = snapshot(local=("work",), remotes={"dev": source("ssh", ("notes",), host="dev")})
         favorites = {Target("ssh", "gone", "off"), Target("local", "work"), Target("ssh", "notes", "dev")}
 
-        entries = _entries("", local, remote, favorites)
+        entries = _entries("", discovered, favorites)
 
         self.assertEqual([entry.label for entry in entries[:4]], ["STARRED", "work", "notes", "gone"])
         self.assertTrue(all(entry.starred_section for entry in entries[1:4]))
@@ -614,11 +630,16 @@ class SidebarDrawTest(unittest.TestCase):
         self.assertEqual(sum(entry.target == Target("local", "work") for entry in entries), 2)
         self.assertTrue(all(entry.starred for entry in entries if entry.target == Target("local", "work")))
 
+    def test_local_discovery_error_is_visible(self):
+        entries = _entries("", snapshot(local_available=False, local_error="permission denied"))
+
+        self.assertTrue(any(entry.kind == "unavailable" and entry.label == "unavailable: permission denied" for entry in entries))
+
     def test_headers_identify_local_hostname_and_ssh_alias(self):
         with patch("mtmux.sidebar.socket.gethostname", return_value="laptop"), patch(
             "mtmux.sidebar._ascii", return_value=False
         ):
-            entries = _entries("", [], {"dev": None})
+            entries = _entries("", snapshot(remotes={"dev": None}))
 
         self.assertEqual([entry.label for entry in entries if entry.kind == "header"], ["💻 laptop", "🔐 dev"])
 
@@ -626,7 +647,7 @@ class SidebarDrawTest(unittest.TestCase):
         with patch.dict("mtmux.sidebar.os.environ", {"MTMUX_ASCII": "1"}), patch(
             "mtmux.sidebar.socket.gethostname", return_value="laptop"
         ):
-            entries = _entries("", [], {"dev": None})
+            entries = _entries("", snapshot(remotes={"dev": None}))
 
         self.assertEqual([entry.label for entry in entries if entry.kind == "header"], ["LOCAL laptop", "SSH dev"])
 
@@ -636,8 +657,8 @@ class SidebarDrawTest(unittest.TestCase):
         with patch("mtmux.sidebar.socket.gethostname", return_value="laptop"), patch(
             "mtmux.sidebar._ascii", return_value=False
         ):
-            self.assertEqual(_entries("missing", [], {}, favorites)[0].label, "💻 laptop")
-            self.assertEqual(_entries("WORK", [], {}, favorites)[0].label, "STARRED")
+            self.assertEqual(_entries("missing", snapshot(), favorites)[0].label, "💻 laptop")
+            self.assertEqual(_entries("WORK", snapshot(), favorites)[0].label, "STARRED")
 
     def test_title_excludes_star_duplicates_and_stale_favorites(self):
         screen = FakeScreen(size=(5, 40))
@@ -664,7 +685,7 @@ class SidebarDrawTest(unittest.TestCase):
         entry = Entry("s" * 64, "session", Target("ssh", "s" * 64, "host"), host="h" * 64, starred=True, starred_section=True)
 
         with patch("mtmux.sidebar._ascii", return_value=False):
-            lines = _entry_lines(entry, False, {entry.target.format()}, None, 20)
+            lines = _entry_lines(entry, False, {entry.target}, None, 20)
 
         self.assertEqual(len(lines), 2)
         self.assertTrue(lines[0].endswith("… 🔔"))
@@ -721,7 +742,7 @@ class SidebarDrawTest(unittest.TestCase):
         with (
             patch("mtmux.sidebar.load_stars", return_value=set()),
             patch("mtmux.sidebar.save_stars") as save,
-            patch("mtmux.sidebar.local_sessions", return_value=["work"]),
+            patch("mtmux.discovery.local_snapshot", return_value=source("local", ("work",))),
             patch("mtmux.sidebar.load_hosts", return_value=[]),
             patch("mtmux.sidebar.curses.curs_set"),
             patch("mtmux.sidebar._init_colors"),
@@ -737,7 +758,7 @@ class SidebarDrawTest(unittest.TestCase):
         target = Target("local", "work")
 
         with (
-            patch("mtmux.sidebar.local_sessions", return_value=["work"]),
+            patch("mtmux.discovery.local_snapshot", return_value=source("local", ("work",))),
             patch("mtmux.sidebar.load_hosts", return_value=[]),
             patch("mtmux.sidebar.curses.curs_set"),
             patch("mtmux.sidebar._init_colors"),
@@ -755,7 +776,7 @@ class SidebarDrawTest(unittest.TestCase):
         draws = []
 
         with (
-            patch("mtmux.sidebar.local_sessions", side_effect=[["notes", "work"], ["work", "new"]]),
+            patch("mtmux.discovery.local_snapshot", side_effect=[source("local", ("notes", "work")), source("local", ("work", "new"))]),
             patch("mtmux.sidebar.load_hosts", return_value=[]),
             patch("mtmux.sidebar.curses.curs_set"),
             patch("mtmux.sidebar._init_colors"),
@@ -774,7 +795,7 @@ class SidebarDrawTest(unittest.TestCase):
 
         with (
             patch("mtmux.sidebar.load_stars", return_value={target}),
-            patch("mtmux.sidebar.local_sessions", return_value=[]),
+            patch("mtmux.discovery.local_snapshot", return_value=source("local")),
             patch("mtmux.sidebar.load_hosts", return_value=[]),
             patch("mtmux.sidebar.curses.curs_set"),
             patch("mtmux.sidebar._init_colors"),
@@ -845,14 +866,12 @@ class SidebarDrawTest(unittest.TestCase):
     def test_pending_remote_does_not_block_quit_and_poller_closes(self):
         screen = FakeScreen([ord("q")], size=(10, 30))
         poller = unittest.mock.Mock()
-        poller.snapshots = {"dev": None}
+        poller.snapshot = snapshot(remotes={"dev": None})
         poller.tick.return_value = False
 
         with (
-            patch("mtmux.sidebar.RemotePoller", return_value=poller),
+            patch("mtmux.sidebar.DiscoveryPoller", return_value=poller),
             patch("mtmux.sidebar.load_hosts", return_value=["dev"]),
-            patch("mtmux.sidebar.local_sessions", return_value=[]),
-            patch("mtmux.sidebar.local_bell_sessions", return_value=set()),
             patch("mtmux.sidebar.curses.curs_set"),
             patch("mtmux.sidebar._init_colors"),
             patch("mtmux.sidebar._current_target", return_value=None),
@@ -865,7 +884,7 @@ class SidebarDrawTest(unittest.TestCase):
     def test_new_remote_session_keeps_selection_until_refresh_then_selects_it(self):
         screen = FakeScreen([curses.KEY_DOWN, 10, ord("n"), ord("e"), ord("w"), 10, -1, ord("q")], size=(10, 30))
         poller = unittest.mock.Mock()
-        poller.snapshots = {"dev": RemoteSnapshot(True, ("work",), frozenset())}
+        poller.snapshot = snapshot(remotes={"dev": source("ssh", ("work",), host="dev")})
         current = [Target("ssh", "work", "dev")]
         selections = []
         refresh_ticks = [0]
@@ -874,7 +893,7 @@ class SidebarDrawTest(unittest.TestCase):
             if current[0].session == "new":
                 refresh_ticks[0] += 1
                 if refresh_ticks[0] == 2:
-                    poller.snapshots["dev"] = RemoteSnapshot(True, ("work", "new"), frozenset())
+                    poller.snapshot = snapshot(remotes={"dev": source("ssh", ("work", "new"), host="dev")})
                     return True
             return False
 
@@ -883,8 +902,7 @@ class SidebarDrawTest(unittest.TestCase):
 
         poller.tick.side_effect = tick
         with (
-            patch("mtmux.sidebar.RemotePoller", return_value=poller),
-            patch("mtmux.sidebar.local_sessions", return_value=[]),
+            patch("mtmux.sidebar.DiscoveryPoller", return_value=poller),
             patch("mtmux.sidebar.load_stars", return_value=set()),
             patch("mtmux.sidebar.curses.curs_set"),
             patch("mtmux.sidebar.curses.echo"),
@@ -903,20 +921,18 @@ class SidebarDrawTest(unittest.TestCase):
     def test_snapshot_completion_updates_remote_rows(self):
         screen = FakeScreen([-1, ord("q")], size=(10, 30))
         poller = unittest.mock.Mock()
-        poller.snapshots = {"dev": None}
+        poller.snapshot = snapshot(remotes={"dev": None})
 
         def tick():
-            if poller.snapshots["dev"] is None:
-                poller.snapshots["dev"] = RemoteSnapshot(True, ("work",), frozenset())
+            if poller.snapshot.remotes["dev"] is None:
+                poller.snapshot = snapshot(remotes={"dev": source("ssh", ("work",), host="dev")})
                 return True
             return False
 
         poller.tick.side_effect = tick
         with (
-            patch("mtmux.sidebar.RemotePoller", return_value=poller),
+            patch("mtmux.sidebar.DiscoveryPoller", return_value=poller),
             patch("mtmux.sidebar.load_hosts", return_value=["dev"]),
-            patch("mtmux.sidebar.local_sessions", return_value=[]),
-            patch("mtmux.sidebar.local_bell_sessions", return_value=set()),
             patch("mtmux.sidebar.curses.curs_set"),
             patch("mtmux.sidebar._init_colors"),
             patch("mtmux.sidebar._current_target", return_value=None),
@@ -929,14 +945,12 @@ class SidebarDrawTest(unittest.TestCase):
         screen = FakeScreen()
         screen.getch = unittest.mock.Mock(side_effect=KeyboardInterrupt)
         poller = unittest.mock.Mock()
-        poller.snapshots = {}
+        poller.snapshot = snapshot()
         poller.tick.return_value = False
 
         with (
-            patch("mtmux.sidebar.RemotePoller", return_value=poller),
+            patch("mtmux.sidebar.DiscoveryPoller", return_value=poller),
             patch("mtmux.sidebar.load_hosts", return_value=[]),
-            patch("mtmux.sidebar.local_sessions", return_value=[]),
-            patch("mtmux.sidebar.local_bell_sessions", return_value=set()),
             patch("mtmux.sidebar.curses.curs_set"),
             patch("mtmux.sidebar._init_colors"),
             patch("mtmux.sidebar._current_target", return_value=None),

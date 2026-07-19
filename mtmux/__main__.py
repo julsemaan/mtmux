@@ -57,8 +57,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "focus-sidebar":
         return cockpit.focus_sidebar()
     if args.command == "list":
-        for item in discover():
-            print(item.line())
+        snapshot = discover()
+        if not snapshot.local.available:
+            print(f"local unavailable: {snapshot.local.error or 'unknown error'}")
+        else:
+            for target in snapshot.local.sessions:
+                print(target.format())
+        for host, source in snapshot.remotes.items():
+            if not source or not source.available:
+                print(f"ssh:{host} unavailable")
+            else:
+                for target in source.sessions:
+                    print(target.format())
         return 0
     if args.command == "switch":
         target = parse_target(args.target)

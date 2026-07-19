@@ -3,96 +3,90 @@ import unittest
 from unittest.mock import Mock, patch
 
 from mtmux.discovery import (
-    RemotePoller,
-    RemoteSnapshot,
-    _bell_sessions,
+    DiscoveryPoller,
+    SessionSnapshot,
+    SourceSnapshot,
     _clean_env,
-    _parse_remote_snapshot,
-    bell_targets,
-    local_bell_sessions,
-    remote_bell_sessions,
+    _parse_source_snapshot,
+    discover,
+    local_snapshot,
     remote_snapshot,
 )
+from mtmux.names import Target
 
 
-class DiscoveryBellTest(unittest.TestCase):
+EMPTY_LOCAL = SourceSnapshot(True, (), frozenset())
+
+
+class DiscoverySnapshotTest(unittest.TestCase):
     def test_clean_env_removes_current_tmux_socket(self):
         with patch.dict("mtmux.discovery.os.environ", {"TMUX": "/tmp/tmux,1,0", "PATH": "x"}, clear=True):
             self.assertEqual(_clean_env(), {"PATH": "x"})
 
-    def test_bell_sessions_parses_window_bell_flags(self):
-        self.assertEqual(_bell_sessions("work:1\nwork:0\nmtmux:cockpit:1\nbad name:1\nchat:1"), {"work", "chat"})
-
-    def test_local_bell_sessions_only_lists_windows(self):
-        run = Mock(return_value=Mock(returncode=0, stdout="work:1:!\nidle:0:-\n"))
-
-        with patch("mtmux.discovery.subprocess.run", run):
-            self.assertEqual(local_bell_sessions(), {"work"})
-
-        command = run.call_args.args[0]
-        self.assertEqual(command[:3], ["tmux", "list-windows", "-a"])
-        self.assertNotIn("set-option", command)
-        self.assertNotIn("set-window-option", command)
-        run.assert_called_once()
-
-    def test_remote_bell_sessions_only_lists_windows(self):
-        run = Mock(return_value=Mock(returncode=0, stdout="work:0:!\nchat:1:-\nidle:0:-\n", stderr=""))
-
-        with patch("mtmux.discovery.subprocess.run", run):
-            self.assertEqual(remote_bell_sessions("dev"), {"work", "chat"})
-
-        remote_command = run.call_args.args[0][-1]
-        self.assertIn("tmux list-windows", remote_command)
-        self.assertNotIn("set-option", remote_command)
-        self.assertNotIn("set-window-option", remote_command)
-        run.assert_called_once()
-
-    def test_bell_targets_includes_local_and_remote_sessions(self):
-        def run(cmd, **kwargs):
-            class Proc:
-                returncode = 0
-                stdout = "work:1:!\nidle:0:-\n"
-
-            return Proc()
-
-        with (
-            patch("mtmux.discovery.subprocess.run", side_effect=run),
-            patch("mtmux.discovery.load_hosts", return_value=["dev"]),
-        ):
-            self.assertEqual(bell_targets(), {"local:work", "ssh:dev:work"})
-
-
-
-class RemoteSnapshotTest(unittest.TestCase):
-    def test_combined_output_deduplicates_valid_sessions_and_collects_bells(self):
-        snapshot = _parse_remote_snapshot(
-            "work:0:-\nwork:1:-\nchat:!:-\nbad name:1:!\nmtmux:1:!\n"
+    def test_source_parser_deduplicates_targets_and_collects_bells(self):
+        snapshot = _parse_source_snapshot(
+            "work:0:-\nwork:1:-\nchat:!:-\nbad name:1:!\nmtmux:1:!\n",
+            kind="ssh",
+            host="dev",
         )
 
-        self.assertEqual(snapshot, RemoteSnapshot(True, ("work", "chat"), frozenset({"work", "chat"})))
+        work = Target("ssh", "work", "dev")
+        chat = Target("ssh", "chat", "dev")
+        self.assertEqual(snapshot, SourceSnapshot(True, (work, chat), frozenset({work, chat})))
 
-    def test_empty_output_is_available(self):
-        self.assertEqual(_parse_remote_snapshot(""), RemoteSnapshot(True, (), frozenset()))
+    def test_local_snapshot_derives_sessions_and_bells_from_one_sample(self):
+        proc = Mock(returncode=0, stdout="work:1:!\nidle:0:-\n", stderr="")
+        with patch("mtmux.discovery.subprocess.run", return_value=proc) as run:
+            snapshot = local_snapshot()
 
-    def test_remote_snapshot_rejects_oversized_output_with_bounded_stderr(self):
-        def run(command, **kwargs):
+        self.assertEqual(
+            snapshot,
+            SourceSnapshot(
+                True,
+                (Target("local", "work"), Target("local", "idle")),
+                frozenset({Target("local", "work")}),
+            ),
+        )
+        run.assert_called_once()
+        self.assertEqual(run.call_args.args[0][:3], ["tmux", "list-windows", "-a"])
+
+    def test_local_no_server_is_available_empty_and_other_failure_is_explicit(self):
+        no_server = Mock(returncode=1, stdout="", stderr="no server running on /tmp/tmux-1000/default\n")
+        failure = Mock(returncode=1, stdout="", stderr="tmux: permission denied\n")
+        with patch("mtmux.discovery.subprocess.run", side_effect=[no_server, failure]):
+            self.assertEqual(local_snapshot(), EMPTY_LOCAL)
+            self.assertEqual(local_snapshot().error, "tmux: permission denied")
+
+    def test_session_snapshot_aggregates_target_values(self):
+        local = SourceSnapshot(True, (Target("local", "work"),), frozenset({Target("local", "work")}))
+        remote = SourceSnapshot(True, (Target("ssh", "chat", "dev"),), frozenset({Target("ssh", "chat", "dev")}))
+        snapshot = SessionSnapshot(local, {"dev": remote, "slow": None})
+
+        self.assertEqual(snapshot.sessions, (Target("local", "work"), Target("ssh", "chat", "dev")))
+        self.assertEqual(snapshot.bells, frozenset({Target("local", "work"), Target("ssh", "chat", "dev")}))
+
+    def test_remote_snapshot_rejects_oversized_output_and_distinguishes_no_server(self):
+        def oversized(command, **kwargs):
             kwargs["stdout"].write(b"x" * (1024 * 1024 + 1))
             kwargs["stderr"].write(b"diagnostic")
             return Mock(returncode=0)
 
-        with patch("mtmux.discovery.subprocess.run", side_effect=run):
+        with patch("mtmux.discovery.subprocess.run", side_effect=oversized):
             self.assertEqual(remote_snapshot("dev").error, "output exceeded 1 MiB")
 
-    def test_remote_snapshot_distinguishes_no_server_from_tmux_failure(self):
         no_server = Mock(returncode=1, stdout="", stderr="no server running on /tmp/tmux-1000/default\n")
-        failure = Mock(returncode=1, stdout="", stderr="tmux: permission denied\n")
+        with patch("mtmux.discovery.subprocess.run", return_value=no_server):
+            self.assertEqual(remote_snapshot("dev"), SourceSnapshot(True, (), frozenset()))
 
-        with patch("mtmux.discovery.subprocess.run", side_effect=[no_server, failure]):
-            self.assertEqual(remote_snapshot("dev"), RemoteSnapshot(True, (), frozenset()))
-            self.assertEqual(remote_snapshot("dev").error, "tmux: permission denied")
-
-    def test_malformed_lines_are_ignored(self):
-        self.assertEqual(_parse_remote_snapshot("broken\n:1:!\n"), RemoteSnapshot(True, (), frozenset()))
+    def test_discover_returns_common_snapshot(self):
+        local = SourceSnapshot(True, (Target("local", "work"),), frozenset())
+        remote = SourceSnapshot(False, (), frozenset(), "offline")
+        with (
+            patch("mtmux.discovery.load_hosts", return_value=["dev"]),
+            patch("mtmux.discovery.local_snapshot", return_value=local),
+            patch("mtmux.discovery.remote_snapshot", return_value=remote),
+        ):
+            self.assertEqual(discover(), SessionSnapshot(local, {"dev": remote}))
 
 
 class FakeProcess:
@@ -135,40 +129,65 @@ class TerminateIgnoringProcess(FakeProcess):
         return self.returncode
 
 
-class RemotePollerTest(unittest.TestCase):
+class DiscoveryPollerTest(unittest.TestCase):
+    def make_poller(self, hosts, **kwargs):
+        with patch("mtmux.discovery.local_snapshot", return_value=EMPTY_LOCAL):
+            return DiscoveryPoller(hosts, **kwargs)
+
     def test_pending_process_does_not_duplicate_or_block(self):
         process = FakeProcess()
         popen = Mock(return_value=process)
-        poller = RemotePoller(["dev"], popen=popen, clock=Mock(return_value=0))
+        poller = self.make_poller(["dev"], popen=popen, clock=Mock(return_value=0))
 
         self.assertFalse(poller.tick())
         poller.refresh()
         self.assertFalse(poller.tick())
         self.assertEqual(popen.call_count, 1)
-        self.assertIsNone(poller.snapshots["dev"])
+        self.assertIsNone(poller.snapshot.remotes["dev"])
         poller.close()
 
     def test_completed_and_failed_processes_update_snapshots(self):
         healthy = FakeProcess(0, "work:1:!\n")
         failed = FakeProcess(255)
-        poller = RemotePoller(["dev", "off"], popen=Mock(side_effect=[healthy, failed]), clock=Mock(return_value=0))
+        poller = self.make_poller(["dev", "off"], popen=Mock(side_effect=[healthy, failed]), clock=Mock(return_value=0))
 
         self.assertTrue(poller.tick())
-        self.assertEqual(poller.snapshots["dev"], RemoteSnapshot(True, ("work",), frozenset({"work"})))
-        self.assertEqual(poller.snapshots["off"].error, "remote command exited 255")
+        work = Target("ssh", "work", "dev")
+        self.assertEqual(poller.snapshot.remotes["dev"], SourceSnapshot(True, (work,), frozenset({work})))
+        self.assertEqual(poller.snapshot.remotes["off"].error, "remote command exited 255")
         self.assertTrue(healthy.communicated)
+
+    def test_spawn_failure_becomes_unavailable_snapshot(self):
+        poller = self.make_poller(["dev"], popen=Mock(side_effect=OSError("no ssh")), clock=Mock(return_value=0))
+
+        self.assertTrue(poller.tick())
+        self.assertEqual(poller.snapshot.remotes["dev"].error, "no ssh")
+
+    def test_refresh_updates_local_and_retries_remote_immediately(self):
+        clock = Mock(side_effect=[0, 1, 1])
+        popen = Mock(side_effect=[FakeProcess(255), FakeProcess(0)])
+        poller = self.make_poller(["dev"], popen=popen, clock=clock, random=Mock(return_value=1))
+        local = SourceSnapshot(True, (Target("local", "new"),), frozenset())
+
+        poller.tick()
+        with patch("mtmux.discovery.local_snapshot", return_value=local):
+            self.assertTrue(poller.refresh())
+        poller.tick()
+
+        self.assertEqual(poller.snapshot.local, local)
+        self.assertEqual(popen.call_count, 2)
 
     def test_timeout_isolated_from_completed_host(self):
         clock = Mock(side_effect=[0, 11])
         slow = FakeProcess()
         healthy = FakeProcess(0, "work:0:-\n")
-        poller = RemotePoller(["slow", "dev"], popen=Mock(side_effect=[slow, healthy, FakeProcess()]), clock=clock)
+        poller = self.make_poller(["slow", "dev"], popen=Mock(side_effect=[slow, healthy, FakeProcess()]), clock=clock)
 
         poller.tick()
         self.assertTrue(poller.tick())
         self.assertTrue(slow.terminated)
-        self.assertFalse(poller.snapshots["slow"].available)
-        self.assertTrue(poller.snapshots["dev"].available)
+        self.assertFalse(poller.snapshot.remotes["slow"].available)
+        self.assertTrue(poller.snapshot.remotes["dev"].available)
         poller.close()
 
     def test_oversized_output_is_rejected_and_stderr_is_bounded(self):
@@ -177,12 +196,12 @@ class RemotePollerTest(unittest.TestCase):
             kwargs["stderr"].write(b"diagnostic")
             return FakeProcess(0)
 
-        poller = RemotePoller(["dev"], popen=popen, clock=Mock(return_value=0))
+        poller = self.make_poller(["dev"], popen=popen, clock=Mock(return_value=0))
 
         self.assertTrue(poller.tick())
-        self.assertEqual(poller.snapshots["dev"].error, "output exceeded 1 MiB")
+        self.assertEqual(poller.snapshot.remotes["dev"].error, "output exceeded 1 MiB")
 
-    def test_poller_distinguishes_no_server_from_tmux_failure(self):
+    def test_no_server_and_tmux_failure_remain_distinct(self):
         def popen(command, **kwargs):
             process = FakeProcess(1)
             kwargs["stderr"].write(
@@ -192,69 +211,53 @@ class RemotePollerTest(unittest.TestCase):
             )
             return process
 
-        poller = RemotePoller(["empty", "broken"], popen=popen, clock=Mock(return_value=0))
+        poller = self.make_poller(["empty", "broken"], popen=popen, clock=Mock(return_value=0))
 
         self.assertTrue(poller.tick())
-        self.assertEqual(poller.snapshots["empty"], RemoteSnapshot(True, (), frozenset()))
-        self.assertEqual(poller.snapshots["broken"].error, "tmux: permission denied")
-
-    def test_success_uses_slower_interval_and_resets_failure_backoff(self):
-        clock = Mock(side_effect=[0, 2])
-        popen = Mock(side_effect=[FakeProcess(255), FakeProcess(0)])
-        poller = RemotePoller(["dev"], popen=popen, clock=clock, random=Mock(return_value=1))
-
-        poller.tick()
-        poller.tick()
-
-        self.assertEqual(popen.call_count, 2)
-        self.assertEqual(poller._next["dev"], 12)
-        self.assertEqual(poller._failures["dev"], 0)
+        self.assertEqual(poller.snapshot.remotes["empty"], SourceSnapshot(True, (), frozenset()))
+        self.assertEqual(poller.snapshot.remotes["broken"].error, "tmux: permission denied")
 
     def test_failures_use_capped_exponential_backoff_with_jitter(self):
         clock = Mock(side_effect=[0, 2, 6, 14, 30, 62, 122, 182])
         popen = Mock(side_effect=[FakeProcess(255) for _ in range(8)])
-        poller = RemotePoller(["dev"], popen=popen, clock=clock, random=Mock(return_value=1))
+        poller = self.make_poller(["dev"], popen=popen, clock=clock, random=Mock(return_value=1))
 
         for _ in range(8):
             poller.tick()
 
         self.assertEqual(poller._next["dev"], 242)
 
-    def test_failure_backoff_jitter_is_deterministic(self):
-        poller = RemotePoller(
+    def test_success_and_failure_backoff_with_jitter(self):
+        clock = Mock(side_effect=[0, 2])
+        popen = Mock(side_effect=[FakeProcess(255), FakeProcess(0)])
+        poller = self.make_poller(["dev"], popen=popen, clock=clock, random=Mock(return_value=1))
+
+        poller.tick()
+        poller.tick()
+
+        self.assertEqual(poller._next["dev"], 12)
+        self.assertEqual(poller._failures["dev"], 0)
+
+        poller = self.make_poller(
             ["dev"], popen=Mock(return_value=FakeProcess(255)),
             clock=Mock(return_value=0), random=Mock(return_value=0),
         )
-
         poller.tick()
-
         self.assertEqual(poller._next["dev"], 1)
-
-    def test_refresh_retries_immediately_during_backoff(self):
-        clock = Mock(side_effect=[0, 1, 1])
-        popen = Mock(side_effect=[FakeProcess(255), FakeProcess(0)])
-        poller = RemotePoller(["dev"], popen=popen, clock=clock, random=Mock(return_value=1))
-
-        poller.tick()
-        poller.refresh()
-        poller.tick()
-
-        self.assertEqual(popen.call_count, 2)
 
     def test_timeout_kills_and_reaps_process_that_ignores_terminate(self):
         process = TerminateIgnoringProcess()
-        poller = RemotePoller(["dev"], popen=Mock(return_value=process), clock=Mock(side_effect=[0, 11]))
+        poller = self.make_poller(["dev"], popen=Mock(return_value=process), clock=Mock(side_effect=[0, 11]))
         poller.tick()
 
         self.assertTrue(poller.tick())
-
         self.assertTrue(process.terminated)
         self.assertTrue(process.killed)
         self.assertEqual(process.wait_timeouts, [1, None])
 
     def test_close_terminates_and_reaps_active_process(self):
         process = FakeProcess()
-        poller = RemotePoller(["dev"], popen=Mock(return_value=process), clock=Mock(return_value=0))
+        poller = self.make_poller(["dev"], popen=Mock(return_value=process), clock=Mock(return_value=0))
         poller.tick()
 
         poller.close()

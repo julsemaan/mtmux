@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 
 from . import cockpit, sessions
-from .discovery import RemotePoller, RemoteSnapshot, local_bell_sessions, local_sessions
+from .discovery import DiscoveryPoller, SessionSnapshot
 from .config import load_hosts, load_stars, load_status_timeout, save_stars
 from .names import Target, validate_name
 
@@ -78,16 +78,12 @@ def _pane_active() -> bool:
 
 def _entries(
     filter_text: str,
-    local: list[str],
-    remote: dict[str, RemoteSnapshot | None],
+    snapshot: SessionSnapshot,
     favorites: set[Target] | None = None,
 ) -> list[Entry]:
     needle = filter_text.lower()
     favorites = favorites or set()
-    available = {Target("local", session) for session in local}
-    for host, snapshot in remote.items():
-        if snapshot and snapshot.available:
-            available.update(Target("ssh", session, host) for session in snapshot.sessions)
+    available = set(snapshot.sessions)
 
     starred = [target for target in sorted(favorites, key=lambda target: target.format()) if needle in target.session.lower()]
     out = [Entry("STARRED", "header")] if starred else []
@@ -98,25 +94,27 @@ def _entries(
     )
     icons = _icons()
     out.append(Entry(f"{icons['local_header']} {hostname}", "header"))
-    for session in local:
-        if needle in session.lower():
-            target = Target("local", session)
-            out.append(Entry(session, "session", target, starred=target in favorites))
+    if not snapshot.local.available:
+        label = f"unavailable: {snapshot.local.error}" if snapshot.local.error else "unavailable"
+        out.append(Entry(label, "unavailable", host=""))
+    else:
+        for target in snapshot.local.sessions:
+            if needle in target.session.lower():
+                out.append(Entry(target.session, "session", target, starred=target in favorites))
     out.append(Entry("new local", "create", host=""))
 
-    for host, snapshot in remote.items():
+    for host, source in snapshot.remotes.items():
         out.append(Entry(f"{icons['remote_header']} {host}", "header"))
-        if snapshot is None:
+        if source is None:
             out.append(Entry("connecting…", "unavailable", host=host))
             continue
-        if not snapshot.available:
-            label = f"unavailable: {snapshot.error}" if snapshot.error else "unavailable"
+        if not source.available:
+            label = f"unavailable: {source.error}" if source.error else "unavailable"
             out.append(Entry(label, "unavailable", host=host))
             continue
-        for session in snapshot.sessions:
-            if needle in session.lower():
-                target = Target("ssh", session, host)
-                out.append(Entry(session, "session", target, host, target in favorites))
+        for target in source.sessions:
+            if needle in target.session.lower():
+                out.append(Entry(target.session, "session", target, host, target in favorites))
         out.append(Entry(f"new on {host}", "create", host=host))
     return out
 
@@ -195,13 +193,10 @@ def _filter_key(filter_text: str, key: int) -> str | None:
     return None
 
 
-def _bell_targets(remote: dict[str, RemoteSnapshot | None]) -> set[str]:
-    targets = {f"local:{session}" for session in local_bell_sessions()}
-    for host, snapshot in remote.items():
-        if snapshot and snapshot.available:
-            targets.update(f"ssh:{host}:{session}" for session in snapshot.bells)
+def _bell_targets(snapshot: SessionSnapshot) -> set[Target]:
+    targets = set(snapshot.bells)
     if target := cockpit.bell_target():
-        targets.add(target.format())
+        targets.add(target)
     return targets
 
 
@@ -290,7 +285,7 @@ def _truncate(text: str, width: int) -> str:
 def _entry_lines(
     entry: Entry,
     selected: bool,
-    bell_targets: set[str],
+    bell_targets: set[Target],
     current_target: Target | None,
     width: int,
 ) -> list[str]:
@@ -302,7 +297,7 @@ def _entry_lines(
         kind = "unavailable" if entry.unavailable_favorite else ("remote" if entry.target and entry.target.kind == "ssh" else "local")
         session_icon = icon["starred"] if entry.starred else icon[kind]
         bell = " BELL" if _ascii() else " 🔔"
-        bell = bell if entry.target and entry.target.format() in bell_targets and entry.target != current_target else ""
+        bell = bell if entry.target in bell_targets and entry.target != current_target else ""
         prefix = f"{pointer} {session_icon} "
         first = prefix + _truncate(entry.label, max(0, width - len(prefix) - len(bell))) + bell
         if not entry.starred_section:
@@ -317,7 +312,7 @@ def _entry_lines(
     return [_truncate(f"  {icon['unavailable']} {entry.label}", width)]
 
 
-def _entry_text(entry: Entry, selected: bool, bell_targets: set[str], current_target: Target | None) -> str:
+def _entry_text(entry: Entry, selected: bool, bell_targets: set[Target], current_target: Target | None) -> str:
     return _entry_lines(entry, selected, bell_targets, current_target, 10_000)[0]
 
 
@@ -347,7 +342,7 @@ def _draw_entries(
     selected: int,
     h: int,
     w: int,
-    bell_targets: set[str],
+    bell_targets: set[Target],
     current_target: Target | None,
     dimmed: bool = False,
 ) -> None:
@@ -404,7 +399,7 @@ def _draw(
     status: str,
     filter_text: str,
     filtering: bool = False,
-    bell_targets: set[str] | None = None,
+    bell_targets: set[Target] | None = None,
     current_target: Target | None = None,
     dimmed: bool = False,
 ) -> int:
@@ -442,12 +437,11 @@ def run(stdscr: curses.window) -> None:
     status_timeout = load_status_timeout()
     filter_text = ""
     filtering = False
-    local = local_sessions()
     favorites = load_stars()
-    poller = RemotePoller(load_hosts())
-    entries = _entries(filter_text, local, poller.snapshots, favorites)
+    poller = DiscoveryPoller(load_hosts())
+    entries = _entries(filter_text, poller.snapshot, favorites)
     selected = _selected_index(entries, _current_target())
-    rang_bells: set[str] = set()
+    rang_bells: set[Target] = set()
     stdscr.timeout(500)
 
     def show_status(message: str) -> None:
@@ -457,7 +451,7 @@ def run(stdscr: curses.window) -> None:
 
     def rebuild(preferred: Target | None = None, old_index: int | None = None, starred: bool | None = None) -> None:
         nonlocal entries, selected
-        entries = _entries(filter_text, local, poller.snapshots, favorites)
+        entries = _entries(filter_text, poller.snapshot, favorites)
         if preferred and any(entry.target == preferred for entry in entries):
             selected = next((i for i, entry in enumerate(entries) if entry.target == preferred and (starred is None or entry.starred == starred)), _selected_index(entries, preferred))
         elif old_index is not None:
@@ -478,9 +472,9 @@ def run(stdscr: curses.window) -> None:
             selectable = _selectable(entries)
             if selectable and selected not in selectable:
                 selected = selectable[0]
-            bell_targets = _bell_targets(poller.snapshots)
+            bell_targets = _bell_targets(poller.snapshot)
             current_target = _current_target()
-            visible_bells = bell_targets - ({current_target.format()} if current_target else set())
+            visible_bells = bell_targets - ({current_target} if current_target else set())
             if visible_bells - rang_bells:
                 curses.beep()
             rang_bells = visible_bells
@@ -538,7 +532,6 @@ def run(stdscr: curses.window) -> None:
             elif key in (curses.KEY_UP, ord("k")) and selectable:
                 selected = selectable[(selectable.index(selected) - 1) % len(selectable)]
             elif key == ord("r"):
-                local[:] = local_sessions()
                 poller.refresh()
                 rebuild(current_selection, selected)
                 show_status("refreshing")
@@ -590,7 +583,6 @@ def run(stdscr: curses.window) -> None:
                         target = Target("local", name) if entry.host == "" else Target("ssh", name, entry.host)
                         sessions.create(target)
                         cockpit.switch(target, sessions.attach_command(target))
-                        local[:] = local_sessions()
                         poller.refresh()
                         rebuild(target, selected)
                         show_status(f"created {name}")
@@ -613,7 +605,6 @@ def run(stdscr: curses.window) -> None:
                 except SystemExit as e:
                     show_status(str(e))
                     continue
-                local[:] = local_sessions()
                 poller.refresh()
                 rebuild(old_index=selected)
                 show_status(f"killed {entry.target.format()}")
@@ -630,7 +621,6 @@ def run(stdscr: curses.window) -> None:
                     target = Target("local", name) if host == "" else Target("ssh", name, host)
                     sessions.create(target)
                     cockpit.switch(target, sessions.attach_command(target))
-                    local[:] = local_sessions()
                     poller.refresh()
                     rebuild(target, selected)
                     show_status(f"created {name}")
