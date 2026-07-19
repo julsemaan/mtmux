@@ -25,7 +25,7 @@ class DiscoverySnapshotTest(unittest.TestCase):
 
     def test_source_parser_deduplicates_targets_and_collects_bells(self):
         snapshot = _parse_source_snapshot(
-            "work:0:-\nwork:1:-\nchat:!:-\nbad name:1:!\nmtmux:1:!\n",
+            "work:0:-\nwork:1:-\nchat:!:-\nbad name:1:!\n",
             kind="ssh",
             host="dev",
         )
@@ -34,12 +34,13 @@ class DiscoverySnapshotTest(unittest.TestCase):
         chat = Target("ssh", "chat", "dev")
         self.assertEqual(snapshot, SourceSnapshot(True, (work, chat), frozenset({work, chat})))
 
-    def test_source_parser_keeps_local_session_named_mtmux(self):
-        target = Target("local", "mtmux")
+    def test_source_parser_keeps_sessions_named_mtmux(self):
+        for kind, host in (("local", None), ("ssh", "dev")):
+            with self.subTest(kind=kind):
+                target = Target(kind, "mtmux", host)
+                snapshot = _parse_source_snapshot("mtmux:1:!\n", kind=kind, host=host)
 
-        snapshot = _parse_source_snapshot("mtmux:1:!\n", kind="local")
-
-        self.assertEqual(snapshot, SourceSnapshot(True, (target,), frozenset({target})))
+                self.assertEqual(snapshot, SourceSnapshot(True, (target,), frozenset({target})))
 
     def test_local_snapshot_derives_sessions_and_bells_from_one_sample(self):
         proc = Mock(returncode=0, stdout="work:1:!\nidle:0:-\n", stderr="")

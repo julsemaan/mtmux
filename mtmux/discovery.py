@@ -64,8 +64,6 @@ def _parse_source_snapshot(text: str, *, kind: str, host: str | None = None) -> 
         if len(parts) != 3:
             continue
         name, bell_flag, window_flags = parts
-        if kind != "local" and name == "mtmux":
-            continue
         try:
             target = Target("local", name) if kind == "local" else Target("ssh", name, host)
         except SystemExit:
