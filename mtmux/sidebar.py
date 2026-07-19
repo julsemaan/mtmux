@@ -6,12 +6,34 @@ import os
 import socket
 import textwrap
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Literal
 
 from . import cockpit, sessions
 from .discovery import DiscoveryPoller, SessionSnapshot
 from .config import load_hosts, load_stars, load_status_timeout, save_stars
 from .names import Target, validate_name
+
+
+@dataclass(frozen=True)
+class Effect:
+    kind: Literal["switch", "create", "kill", "refresh", "help", "save_favorites", "quit"]
+    target: Target | None = None
+    favorites: frozenset[Target] | None = None
+    message: str = ""
+
+
+@dataclass
+class SidebarState:
+    filter_text: str = ""
+    filtering: bool = False
+    selected_target: Target | None = None
+    selected_index: int = 0
+    pending_selection: Target | None = None
+    favorites: set[Target] = field(default_factory=set)
+    status: str = ""
+    status_deadline: float | None = None
+    rang_bells: set[Target] = field(default_factory=set)
 
 
 @dataclass(frozen=True)
@@ -139,6 +161,97 @@ def _selected_before(entries: list[Entry], index: int) -> int:
     selectable = _selectable(entries)
     previous = [i for i in selectable if i < index]
     return previous[-1] if previous else (selectable[0] if selectable else 0)
+
+
+def _target_index(entries: list[Entry], target: Target) -> int | None:
+    matches = [i for i, entry in enumerate(entries) if entry.target == target]
+    if not matches:
+        return None
+    return next((i for i in matches if not entries[i].starred_section), matches[0])
+
+
+def _sync_selection(state: SidebarState, entries: list[Entry]) -> None:
+    if state.pending_selection is not None:
+        index = _target_index(entries, state.pending_selection)
+        if index is not None:
+            state.selected_index = index
+            state.selected_target = state.pending_selection
+            state.pending_selection = None
+            return
+    if state.selected_target is not None:
+        index = _target_index(entries, state.selected_target)
+        if index is not None:
+            state.selected_index = index
+            return
+    choices = _selectable(entries)
+    state.selected_index = min(choices, key=lambda index: abs(index - state.selected_index)) if choices else 0
+    state.selected_target = entries[state.selected_index].target if choices else None
+
+
+def _transition(
+    state: SidebarState,
+    action: str,
+    target: Target | None = None,
+    *,
+    unavailable: bool = False,
+) -> Effect | None:
+    target = target or state.selected_target
+    if action in ("switch", "kill"):
+        return Effect(action, target=target) if target else None
+    if action == "create":
+        return Effect("create", target=target) if target else None
+    if action == "toggle_favorite" and target:
+        if target in state.favorites:
+            state.favorites.remove(target)
+            message = f"unstarred {target.format()}"
+        else:
+            state.favorites.add(target)
+            message = f"starred {target.format()}"
+        state.selected_target = None if unavailable else target
+        return Effect("save_favorites", favorites=frozenset(state.favorites), message=message)
+    if action in ("refresh", "help", "quit"):
+        return Effect(action)
+    return None
+
+
+def _set_status(state: SidebarState, message: str, timeout: float) -> None:
+    state.status = message
+    state.status_deadline = time.monotonic() + timeout
+
+
+def _execute(effect: Effect, state: SidebarState, poller: DiscoveryPoller, status_timeout: float) -> bool:
+    try:
+        if effect.kind == "switch" and effect.target:
+            cockpit.switch(effect.target, sessions.attach_command(effect.target))
+            state.filter_text = ""
+            state.filtering = False
+            state.selected_target = effect.target
+            _set_status(state, f"switched {effect.target.format()}", status_timeout)
+        elif effect.kind == "create" and effect.target:
+            sessions.create(effect.target)
+            cockpit.switch(effect.target, sessions.attach_command(effect.target))
+            state.pending_selection = effect.target
+            poller.refresh()
+            _set_status(state, f"created {effect.target.session}", status_timeout)
+        elif effect.kind == "kill" and effect.target:
+            sessions.kill(effect.target)
+            poller.refresh()
+            state.selected_target = None
+            _set_status(state, f"killed {effect.target.format()}", status_timeout)
+        elif effect.kind == "refresh":
+            poller.refresh()
+            _set_status(state, "refreshing", status_timeout)
+        elif effect.kind == "help":
+            cockpit.show_help()
+            _set_status(state, "help opened", status_timeout)
+        elif effect.kind == "save_favorites":
+            save_stars(set(effect.favorites or ()))
+            _set_status(state, effect.message, status_timeout)
+        elif effect.kind == "quit":
+            return True
+    except SystemExit as error:
+        _set_status(state, str(error), status_timeout)
+    return False
 
 
 def _current_target() -> Target | None:
@@ -432,148 +545,123 @@ def run(stdscr: curses.window) -> None:
     _init_colors()
     curses.curs_set(0)
     _mouse_mask()
-    status = ""
-    status_deadline: float | None = None
     status_timeout = load_status_timeout()
-    filter_text = ""
-    filtering = False
-    favorites = load_stars()
+    state = SidebarState(favorites=load_stars(), selected_target=_current_target())
     poller = DiscoveryPoller(load_hosts())
-    entries = _entries(filter_text, poller.snapshot, favorites)
-    selected = _selected_index(entries, _current_target())
-    rang_bells: set[Target] = set()
+    entries = _entries(state.filter_text, poller.snapshot, state.favorites)
+    state.selected_index = _selected_index(entries, state.selected_target)
+    _sync_selection(state, entries)
     stdscr.timeout(500)
 
     def show_status(message: str) -> None:
-        nonlocal status, status_deadline
-        status = message
-        status_deadline = time.monotonic() + status_timeout
+        _set_status(state, message, status_timeout)
 
-    def rebuild(preferred: Target | None = None, old_index: int | None = None, starred: bool | None = None) -> None:
-        nonlocal entries, selected
-        entries = _entries(filter_text, poller.snapshot, favorites)
-        if preferred and any(entry.target == preferred for entry in entries):
-            selected = next((i for i, entry in enumerate(entries) if entry.target == preferred and (starred is None or entry.starred == starred)), _selected_index(entries, preferred))
-        elif old_index is not None:
-            choices = _selectable(entries)
-            selected = min(choices, key=lambda index: abs(index - old_index)) if choices else 0
-        else:
-            selected = _selected_index(entries, _current_target())
+    def rebuild() -> None:
+        nonlocal entries
+        entries = _entries(state.filter_text, poller.snapshot, state.favorites)
+        _sync_selection(state, entries)
 
     try:
         while True:
-            if status_deadline is not None and time.monotonic() >= status_deadline:
-                status = ""
-                status_deadline = None
-            current_entry = entries[selected] if entries and selected < len(entries) else None
-            current_selection = current_entry.target if current_entry else None
+            if state.status_deadline is not None and time.monotonic() >= state.status_deadline:
+                state.status = ""
+                state.status_deadline = None
             if poller.tick():
-                rebuild(_current_target(), selected)
+                rebuild()
             selectable = _selectable(entries)
-            if selectable and selected not in selectable:
-                selected = selectable[0]
+            if selectable and state.selected_index not in selectable:
+                state.selected_index = selectable[0]
             bell_targets = _bell_targets(poller.snapshot)
             current_target = _current_target()
             visible_bells = bell_targets - ({current_target} if current_target else set())
-            if visible_bells - rang_bells:
+            if visible_bells - state.rang_bells:
                 curses.beep()
-            rang_bells = visible_bells
-            footer_height = _draw(stdscr, entries, selected, status, filter_text, filtering, bell_targets, current_target, not _pane_active())
+            state.rang_bells = visible_bells
+            footer_height = _draw(
+                stdscr, entries, state.selected_index, state.status, state.filter_text,
+                state.filtering, bell_targets, current_target, not _pane_active(),
+            )
             try:
                 key = stdscr.getch()
             except KeyboardInterrupt:
-                if not filtering:
+                if not state.filtering:
                     raise
                 key = 3
             if key == -1:
                 continue
             if key == curses.KEY_MOUSE:
                 try:
-                    _, _, row, _, state = curses.getmouse()
+                    _, _, row, _, mouse_state = curses.getmouse()
                 except (curses.error, TypeError, ValueError):
                     continue
-                if not isinstance(row, int) or not isinstance(state, int):
+                if not isinstance(row, int) or not isinstance(mouse_state, int):
                     continue
-                if state & (getattr(curses, "BUTTON4_PRESSED", 0) or 0):
+                if mouse_state & (getattr(curses, "BUTTON4_PRESSED", 0) or 0):
                     key = curses.KEY_UP
-                elif state & (getattr(curses, "BUTTON5_PRESSED", 0) or 0):
+                elif mouse_state & (getattr(curses, "BUTTON5_PRESSED", 0) or 0):
                     key = curses.KEY_DOWN
                 else:
-                    index = _entry_at_row(entries, selected, row, stdscr.getmaxyx()[0], footer_height)
+                    index = _entry_at_row(entries, state.selected_index, row, stdscr.getmaxyx()[0], footer_height)
                     if index is None:
                         continue
-                    selected = index
-                    if state & (getattr(curses, "BUTTON1_DOUBLE_CLICKED", 0) or 0):
+                    state.selected_index = index
+                    state.selected_target = entries[index].target
+                    if mouse_state & (getattr(curses, "BUTTON1_DOUBLE_CLICKED", 0) or 0):
                         key = curses.KEY_ENTER
-                    elif state & ((getattr(curses, "BUTTON1_CLICKED", 0) or 0) | (getattr(curses, "BUTTON1_PRESSED", 0) or 0)):
+                    elif mouse_state & ((getattr(curses, "BUTTON1_CLICKED", 0) or 0) | (getattr(curses, "BUTTON1_PRESSED", 0) or 0)):
                         continue
                     else:
                         continue
-            if filtering:
+            if state.filtering:
                 if key in (27, 3):
-                    filter_text = ""
-                    filtering = False
+                    state.filter_text = ""
+                    state.filtering = False
                     curses.curs_set(0)
                     rebuild()
                     show_status("cancelled" if key == 3 else "filter cleared")
                     continue
-                new_filter = _filter_key(filter_text, key)
+                new_filter = _filter_key(state.filter_text, key)
                 if new_filter is not None:
-                    filter_text = new_filter
-                    rebuild(current_selection, selected)
-                    if not filter_text:
+                    state.filter_text = new_filter
+                    rebuild()
+                    if not state.filter_text:
                         show_status("filter cleared")
                     continue
             selectable = _selectable(entries)
+            effect: Effect | None = None
             if key == ord("q"):
-                return
-            if key in (curses.KEY_DOWN, ord("j")) and selectable:
-                selected = selectable[(selectable.index(selected) + 1) % len(selectable)]
+                effect = _transition(state, "quit")
+            elif key in (curses.KEY_DOWN, ord("j")) and selectable:
+                state.selected_index = selectable[(selectable.index(state.selected_index) + 1) % len(selectable)]
+                state.selected_target = entries[state.selected_index].target
             elif key in (curses.KEY_UP, ord("k")) and selectable:
-                selected = selectable[(selectable.index(selected) - 1) % len(selectable)]
+                state.selected_index = selectable[(selectable.index(state.selected_index) - 1) % len(selectable)]
+                state.selected_target = entries[state.selected_index].target
             elif key == ord("r"):
-                poller.refresh()
-                rebuild(current_selection, selected)
-                show_status("refreshing")
+                effect = _transition(state, "refresh")
             elif key == ord("/"):
-                filtering = True
+                state.filtering = True
                 curses.curs_set(1)
             elif key == ord("?"):
-                try:
-                    cockpit.show_help()
-                    show_status("help opened")
-                except SystemExit as e:
-                    show_status(str(e))
+                effect = _transition(state, "help")
             elif key == ord("f"):
-                entry = entries[selected]
+                entry = entries[state.selected_index]
                 if not entry.target:
                     show_status("select session to star")
                     continue
-                target = entry.target
-                was_starred_copy = entry.starred_section
-                if target in favorites:
-                    favorites.remove(target)
-                    save_stars(favorites)
-                    rebuild(target if not entry.unavailable_favorite else None, selected, False if was_starred_copy else None)
-                    show_status(f"unstarred {target.format()}")
-                else:
-                    favorites.add(target)
-                    save_stars(favorites)
-                    rebuild(target, starred=True)
-                    show_status(f"starred {target.format()}")
+                effect = _transition(
+                    state, "toggle_favorite", entry.target,
+                    unavailable=entry.unavailable_favorite,
+                )
             elif key in (10, 13, curses.KEY_ENTER):
-                entry = entries[selected]
-                try:
-                    if entry.unavailable_favorite:
-                        show_status(f"unavailable {entry.target.format()}")
-                    elif entry.target:
-                        cockpit.switch(entry.target, sessions.attach_command(entry.target))
-                        filter_text = ""
-                        filtering = False
-                        curses.curs_set(0)
-                        rebuild(entry.target)
-                        show_status(f"switched {entry.target.format()}")
-                    elif entry.kind == "create":
+                entry = entries[state.selected_index]
+                if entry.unavailable_favorite:
+                    show_status(f"unavailable {entry.target.format()}")
+                    continue
+                if entry.target:
+                    effect = _transition(state, "switch", entry.target)
+                elif entry.kind == "create":
+                    try:
                         curses.curs_set(1)
                         name = _session_prompt(stdscr)
                         curses.curs_set(0)
@@ -581,35 +669,23 @@ def run(stdscr: curses.window) -> None:
                             show_status("cancelled")
                             continue
                         target = Target("local", name) if entry.host == "" else Target("ssh", name, entry.host)
-                        sessions.create(target)
-                        cockpit.switch(target, sessions.attach_command(target))
-                        poller.refresh()
-                        rebuild(target, selected)
-                        show_status(f"created {name}")
-                except SystemExit as e:
-                    show_status(str(e))
+                        effect = _transition(state, "create", target)
+                    except SystemExit as error:
+                        show_status(str(error))
             elif key == ord("x"):
-                entry = entries[selected]
+                entry = entries[state.selected_index]
                 if not entry.target:
                     show_status("select session to kill")
                     continue
                 if entry.unavailable_favorite:
                     show_status(f"unavailable {entry.target.format()}")
                     continue
-                answer = _read_key(stdscr, f"kill {entry.target.format()}? y/N")
-                if answer != ord("y"):
+                if _read_key(stdscr, f"kill {entry.target.format()}? y/N") != ord("y"):
                     show_status("cancelled")
                     continue
-                try:
-                    sessions.kill(entry.target)
-                except SystemExit as e:
-                    show_status(str(e))
-                    continue
-                poller.refresh()
-                rebuild(old_index=selected)
-                show_status(f"killed {entry.target.format()}")
+                effect = _transition(state, "kill", entry.target)
             elif key == ord("n"):
-                entry = entries[selected]
+                entry = entries[state.selected_index]
                 host = entry.host if entry.kind == "create" else (entry.target.host if entry.target and entry.target.kind == "ssh" else "")
                 try:
                     curses.curs_set(1)
@@ -619,13 +695,15 @@ def run(stdscr: curses.window) -> None:
                         show_status("cancelled")
                         continue
                     target = Target("local", name) if host == "" else Target("ssh", name, host)
-                    sessions.create(target)
-                    cockpit.switch(target, sessions.attach_command(target))
-                    poller.refresh()
-                    rebuild(target, selected)
-                    show_status(f"created {name}")
-                except SystemExit as e:
-                    show_status(str(e))
+                    effect = _transition(state, "create", target)
+                except SystemExit as error:
+                    show_status(str(error))
+            if effect:
+                if _execute(effect, state, poller, status_timeout):
+                    return
+                if effect.kind in ("switch", "create"):
+                    curses.curs_set(0)
+                rebuild()
     finally:
         poller.close()
 

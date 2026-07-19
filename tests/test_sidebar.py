@@ -20,7 +20,9 @@ def snapshot(local=(), remotes=None, local_bells=(), local_available=True, local
 
 
 from mtmux.sidebar import (
+    Effect,
     Entry,
+    SidebarState,
     _bell_targets,
     _draw,
     _fade,
@@ -33,6 +35,9 @@ from mtmux.sidebar import (
     _read_key,
     _selected_before,
     _selected_index,
+    _sync_selection,
+    _transition,
+    _execute,
     _viewport,
     main,
     run,
@@ -87,6 +92,78 @@ class FakeScreen:
 
     def timeout(self, *args):
         self.calls.append(("timeout", *args))
+
+
+class SidebarStateTest(unittest.TestCase):
+    def test_pending_selection_waits_for_discovery_then_selects_target(self):
+        target = Target("ssh", "new", "dev")
+        state = SidebarState(selected_index=2, pending_selection=target)
+        pending_entries = _entries("", snapshot(remotes={"dev": source("ssh", ("work",), host="dev")}))
+
+        _sync_selection(state, pending_entries)
+        self.assertEqual(state.pending_selection, target)
+        self.assertIsNone(state.selected_target)
+
+        ready_entries = _entries("", snapshot(remotes={"dev": source("ssh", ("work", "new"), host="dev")}))
+        _sync_selection(state, ready_entries)
+        self.assertEqual(state.selected_target, target)
+        self.assertIsNone(state.pending_selection)
+
+    def test_unrelated_snapshot_preserves_user_selection(self):
+        selected = Target("local", "notes")
+        state = SidebarState(selected_target=selected, selected_index=2)
+        entries = _entries("", snapshot(local=("work", "notes"), remotes={"dev": source("ssh", ("chat",), host="dev")}))
+
+        _sync_selection(state, entries)
+
+        self.assertEqual(entries[state.selected_index].target, selected)
+
+    def test_transition_returns_effect_without_running_operations(self):
+        target = Target("local", "work")
+        state = SidebarState(selected_target=target)
+
+        effect = _transition(state, "switch")
+
+        self.assertEqual(effect, Effect("switch", target=target))
+
+    def test_toggle_favorite_updates_state_and_returns_save_effect(self):
+        target = Target("local", "work")
+        state = SidebarState(selected_target=target)
+
+        effect = _transition(state, "toggle_favorite")
+
+        self.assertEqual(state.favorites, {target})
+        self.assertEqual(effect, Effect("save_favorites", favorites=frozenset({target}), message="starred local:work"))
+
+    def test_successful_create_switches_and_sets_pending_selection(self):
+        target = Target("ssh", "new", "dev")
+        state = SidebarState()
+        poller = unittest.mock.Mock()
+        with (
+            patch("mtmux.sidebar.sessions.create") as create,
+            patch("mtmux.sidebar.sessions.attach_command", return_value="attach"),
+            patch("mtmux.sidebar.cockpit.switch") as switch,
+        ):
+            self.assertFalse(_execute(Effect("create", target=target), state, poller, 5))
+
+        create.assert_called_once_with(target)
+        switch.assert_called_once_with(target, "attach")
+        self.assertEqual(state.pending_selection, target)
+        poller.refresh.assert_called_once_with()
+
+    def test_failed_create_neither_switches_nor_sets_pending_selection(self):
+        target = Target("ssh", "new", "dev")
+        state = SidebarState()
+        poller = unittest.mock.Mock()
+        with (
+            patch("mtmux.sidebar.sessions.create", side_effect=SystemExit("create failed")),
+            patch("mtmux.sidebar.cockpit.switch") as switch,
+        ):
+            self.assertFalse(_execute(Effect("create", target=target), state, poller, 5))
+
+        switch.assert_not_called()
+        self.assertIsNone(state.pending_selection)
+        self.assertEqual(state.status, "create failed")
 
 
 class SidebarDrawTest(unittest.TestCase):
