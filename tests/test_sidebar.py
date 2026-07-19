@@ -491,7 +491,7 @@ class SidebarDrawTest(unittest.TestCase):
             run(screen)
 
         primary = [call[3].rstrip() for call in screen.calls if call[0] == "addnstr" and call[1] == 5]
-        self.assertEqual(primary, ["↵ switch  f star  n new  x kill", "refreshing", "↵ switch  f star  n new  x kill", "↵ switch  f star  n new  x kill"])
+        self.assertEqual(primary, ["↵ switch  f star  n new  x kill", "refreshing", "↵ switch  f star  n new  x kill"])
 
     def test_later_status_resets_deadline(self):
         screen = FakeScreen([ord("r"), ord("?"), -1, -1, ord("q")], size=(7, 60))
@@ -509,7 +509,7 @@ class SidebarDrawTest(unittest.TestCase):
             run(screen)
 
         primary = [call[3].rstrip() for call in screen.calls if call[0] == "addnstr" and call[1] == 5]
-        self.assertEqual(primary[-3:], ["help opened", "↵ switch  f star  n new  x kill", "↵ switch  f star  n new  x kill"])
+        self.assertEqual(primary[-3:], ["refreshing", "help opened", "↵ switch  f star  n new  x kill"])
 
     def test_custom_status_timeout_controls_expiry(self):
         screen = FakeScreen([ord("r"), -1, -1, ord("q")], size=(7, 60))
@@ -545,6 +545,21 @@ class SidebarDrawTest(unittest.TestCase):
 
         self.assertIn(("timeout", 50), screen.calls)
         self.assertEqual(calls, [""])
+
+    def test_idle_ui_ticks_do_not_redraw_sidebar(self):
+        screen = FakeScreen([-1, -1, ord("q")])
+
+        with (
+            patch("mtmux.sidebar.curses.curs_set"),
+            patch("mtmux.sidebar._init_colors"),
+            patch("mtmux.sidebar._entries", return_value=[Entry("work", "session", Target("local", "work"))]),
+            patch("mtmux.sidebar._bell_targets", return_value=set()),
+            patch("mtmux.sidebar._current_target", return_value=None),
+            patch("mtmux.sidebar._draw", return_value=2) as draw,
+        ):
+            run(screen)
+
+        draw.assert_called_once()
 
     def test_rapid_ui_ticks_do_not_accelerate_cockpit_bell_polling(self):
         screen = FakeScreen([-1, -1, -1, ord("q")])

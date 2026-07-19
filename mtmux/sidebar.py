@@ -558,6 +558,8 @@ def run(stdscr: curses.window) -> None:
     observed_target = state.selected_target
     cockpit_bell_target: Target | None = None
     next_cockpit_bell_poll = 0.0
+    rendered: tuple[object, ...] | None = None
+    footer_height = 0
     stdscr.timeout(UI_POLL_INTERVAL_MS)
 
     def show_status(message: str) -> None:
@@ -594,10 +596,17 @@ def run(stdscr: curses.window) -> None:
             if visible_bells - state.rang_bells:
                 curses.beep()
             state.rang_bells = visible_bells
-            footer_height = _draw(
-                stdscr, entries, state.selected_index, state.status, state.filter_text,
-                state.filtering, bell_targets, current_target, not _pane_active(),
+            dimmed = not _pane_active()
+            render_state = (
+                tuple(entries), state.selected_index, state.status, state.filter_text,
+                state.filtering, frozenset(bell_targets), current_target, dimmed, stdscr.getmaxyx(),
             )
+            if render_state != rendered:
+                footer_height = _draw(
+                    stdscr, entries, state.selected_index, state.status, state.filter_text,
+                    state.filtering, bell_targets, current_target, dimmed,
+                )
+                rendered = render_state
             try:
                 key = stdscr.getch()
             except KeyboardInterrupt:
