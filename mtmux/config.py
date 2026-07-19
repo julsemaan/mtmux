@@ -81,22 +81,26 @@ def load_hosts() -> list[str]:
         raise SystemExit(f"Invalid config {cfg}: {error}") from error
 
 
-def load_stars() -> set[Target]:
+def load_stars() -> list[Target]:
     path = config_dir() / "stars"
     if not path.exists():
-        return set()
-    favorites = set()
+        return []
+    favorites: list[Target] = []
+    seen: set[Target] = set()
     for line_number, line in enumerate(path.read_text().splitlines(), 1):
         if not (text := line.strip()):
             continue
         try:
-            favorites.add(parse_target(text))
+            target = parse_target(text)
         except SystemExit as e:
             raise SystemExit(f"Invalid favorite in {path}:{line_number}: {e}") from e
+        if target not in seen:
+            favorites.append(target)
+            seen.add(target)
     return favorites
 
 
-def save_stars(favorites: set[Target]) -> None:
+def save_stars(favorites: list[Target] | tuple[Target, ...]) -> None:
     path = config_dir() / "stars"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(f"{target}\n" for target in sorted(t.format() for t in favorites)))
+    path.write_text("".join(f"{target.format()}\n" for target in favorites))

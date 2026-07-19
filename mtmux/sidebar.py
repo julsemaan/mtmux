@@ -21,9 +21,9 @@ COCKPIT_BELL_POLL_INTERVAL = 0.5
 
 @dataclass(frozen=True)
 class Effect:
-    kind: Literal["switch", "create", "kill", "refresh", "help", "save_favorites", "quit"]
+    kind: Literal["switch", "create", "kill", "refresh", "help", "save_favorites", "status", "quit"]
     target: Target | None = None
-    favorites: frozenset[Target] | None = None
+    favorites: tuple[Target, ...] | None = None
     message: str = ""
 
 
@@ -35,7 +35,7 @@ class SidebarState:
     selected_index: int = 0
     selected_starred_section: bool = False
     pending_selection: Target | None = None
-    favorites: set[Target] = field(default_factory=set)
+    favorites: list[Target] = field(default_factory=list)
     status: str = ""
     status_deadline: float | None = None
     rang_bells: set[Target] = field(default_factory=set)
@@ -107,15 +107,14 @@ def _pane_active() -> bool:
 def _entries(
     filter_text: str,
     snapshot: SessionSnapshot,
-    favorites: set[Target] | None = None,
+    favorites: list[Target] | None = None,
 ) -> list[Entry]:
     needle = filter_text.lower()
-    favorites = favorites or set()
+    favorites = favorites or []
     available = set(snapshot.sessions)
 
-    sorted_favorites = sorted(favorites, key=lambda target: target.format())
-    slots = {target: slot for slot, target in enumerate(sorted_favorites[:9], 1)}
-    starred = [target for target in sorted_favorites if needle in target.session.lower()]
+    slots = {target: slot for slot, target in enumerate(favorites[:9], 1)}
+    starred = [target for target in favorites if needle in target.session.lower()]
     out = [Entry("STARRED", "header")] if starred else []
     hostname = socket.gethostname()
     out.extend(
@@ -212,10 +211,22 @@ def _transition(
             state.favorites.remove(target)
             message = f"unstarred {target.format()}"
         else:
-            state.favorites.add(target)
+            state.favorites.append(target)
             message = f"starred {target.format()}"
         state.selected_target = None if unavailable else target
-        return Effect("save_favorites", favorites=frozenset(state.favorites), message=message)
+        return Effect("save_favorites", favorites=tuple(state.favorites), message=message)
+    if action in ("move_favorite_up", "move_favorite_down"):
+        if not target or not state.selected_starred_section or target not in state.favorites:
+            return None
+        index = state.favorites.index(target)
+        offset = -1 if action == "move_favorite_up" else 1
+        new_index = index + offset
+        if not 0 <= new_index < len(state.favorites):
+            edge = "first" if offset < 0 else "last"
+            return Effect("status", message=f"already {edge} starred session")
+        state.favorites[index], state.favorites[new_index] = state.favorites[new_index], state.favorites[index]
+        direction = "up" if offset < 0 else "down"
+        return Effect("save_favorites", favorites=tuple(state.favorites), message=f"moved {target.format()} {direction}")
     if action in ("refresh", "help", "quit"):
         return Effect(action)
     return None
@@ -253,7 +264,9 @@ def _execute(effect: Effect, state: SidebarState, poller: DiscoveryPoller, statu
             cockpit.show_help()
             _set_status(state, "help opened", status_timeout)
         elif effect.kind == "save_favorites":
-            save_stars(set(effect.favorites or ()))
+            save_stars(effect.favorites or ())
+            _set_status(state, effect.message, status_timeout)
+        elif effect.kind == "status":
             _set_status(state, effect.message, status_timeout)
         elif effect.kind == "quit":
             return True
@@ -500,7 +513,7 @@ def _draw_footer(
     if filtering:
         logical_rows = ["type to filter  backspace edit", f"esc clear  {'Enter' if _ascii() else '↵'} switch"]
     else:
-        logical_rows = [status or f"{'Enter' if _ascii() else '↵'} switch  f star  n new  x kill", "/ filter  r refresh  ? help  q quit"]
+        logical_rows = [status or f"{'Enter' if _ascii() else '↵'} switch  f star  J/K order  n new  x kill", "/ filter  r refresh  ? help  q quit"]
     width = max(1, w - 1)
     lines = [line for logical_row in logical_rows for line in (textwrap.wrap(logical_row, width=width) or [""])]
     attr = _color("title") or (curses.A_BOLD | curses.A_REVERSE)
@@ -668,6 +681,10 @@ def run(stdscr: curses.window) -> None:
                 state.selected_index = selectable[(selectable.index(state.selected_index) - 1) % len(selectable)]
                 state.selected_target = entries[state.selected_index].target
                 state.selected_starred_section = entries[state.selected_index].starred_section
+            elif key == ord("K"):
+                effect = _transition(state, "move_favorite_up")
+            elif key == ord("J"):
+                effect = _transition(state, "move_favorite_down")
             elif key == ord("r"):
                 effect = _transition(state, "refresh")
             elif key == ord("/"):

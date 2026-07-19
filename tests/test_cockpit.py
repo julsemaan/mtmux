@@ -154,6 +154,7 @@ class CockpitLayoutTest(unittest.TestCase):
 
         self.assertIn("C-x s  focus/open sidebar", command)
         self.assertIn("C-x 1-9  switch starred session", command)
+        self.assertIn("K/J    move starred session up/down", command)
         self.assertIn("C-x d  detach cockpit", command)
 
     def test_new_cockpit_sets_configured_prefix_and_startup_help(self):

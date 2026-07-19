@@ -89,13 +89,16 @@ class ConfigTest(unittest.TestCase):
                     config.load_hosts()
 
     def test_missing_stars_file_loads_empty(self):
-        self.assertEqual(config.load_stars(), set())
+        self.assertEqual(config.load_stars(), [])
 
-    def test_stars_ignore_blanks_and_parse_targets(self):
+    def test_stars_preserve_order_ignore_blanks_and_deduplicate(self):
         stars = Path(self.tempdir.name) / "stars"
-        stars.write_text("\nlocal:work\nssh:dev:notes\n\n")
+        stars.write_text("\nssh:dev:notes\nlocal:work\nssh:dev:notes\n\n")
 
-        self.assertEqual(config.load_stars(), {config.parse_target("local:work"), config.parse_target("ssh:dev:notes")})
+        self.assertEqual(
+            config.load_stars(),
+            [config.parse_target("ssh:dev:notes"), config.parse_target("local:work")],
+        )
 
     def test_invalid_star_reports_file_context(self):
         stars = Path(self.tempdir.name) / "stars"
@@ -104,12 +107,12 @@ class ConfigTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, rf"Invalid favorite in {stars}"):
             config.load_stars()
 
-    def test_save_stars_sorts_targets(self):
-        favorites = {config.parse_target("ssh:dev:work"), config.parse_target("local:notes")}
+    def test_save_stars_preserves_supplied_order(self):
+        favorites = [config.parse_target("ssh:dev:work"), config.parse_target("local:notes")]
 
         config.save_stars(favorites)
 
-        self.assertEqual((Path(self.tempdir.name) / "stars").read_text(), "local:notes\nssh:dev:work\n")
+        self.assertEqual((Path(self.tempdir.name) / "stars").read_text(), "ssh:dev:work\nlocal:notes\n")
 
 
 if __name__ == "__main__":

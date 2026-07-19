@@ -7,12 +7,12 @@ from mtmux.names import Target
 
 
 class MainTest(unittest.TestCase):
-    def test_switch_star_switches_sorted_favorite_slot(self):
-        favorites = {
+    def test_switch_star_uses_persisted_favorite_order(self):
+        favorites = [
             Target("ssh", "alpha", "dev"),
             Target("local", "zeta"),
             Target("local", "alpha"),
-        }
+        ]
         target = Target("local", "zeta")
         with (
             patch("mtmux.__main__.load_stars", return_value=favorites),
@@ -26,7 +26,7 @@ class MainTest(unittest.TestCase):
 
     def test_switch_star_rejects_empty_slot_without_switching(self):
         with (
-            patch("mtmux.__main__.load_stars", return_value={Target("local", "work")}),
+            patch("mtmux.__main__.load_stars", return_value=[Target("local", "work")]),
             patch("mtmux.__main__.cockpit.switch") as switch,
         ):
             with self.assertRaisesRegex(SystemExit, "^No starred session in slot 2$"):
