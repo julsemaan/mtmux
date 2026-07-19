@@ -14,11 +14,9 @@ No more terminal-tab archaeology. Star the sessions that matter, jump between ma
 
 ## Why mtmux?
 
-- **One view across machines** — local and remote sessions live in the same sidebar.
-- **Fast context switches** — select a session and press `Enter`; no reconnecting or command recall.
-- **Nothing held hostage** — mtmux attaches to real tmux sessions, which keep running independently.
-- **Built for keyboard flow** — create, filter, switch, favorite, and kill sessions without reaching for the mouse.
-- **Attention where it matters** — bell activity makes waiting sessions visible.
+- **One view across machines**: local and remote sessions live in the same sidebar.
+- **Fast context switches**: view which sessions require your attention via tmux bells then quickly get to them.
+- **Built for your existing flow**: mtmux works with your existing tmux configuration and workflows.
 
 ## Quick start
 
