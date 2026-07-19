@@ -5,7 +5,7 @@
 <h1 align="center">mtmux</h1>
 
 <p align="center">
-  One terminal. Every tmux session, local or remote.
+  Every tmux session, local or remote, at your fingertips.
 </p>
 
 `mtmux` runs inside your existing terminal and works on top of tmux. No new terminal app, no replacement tmux setup, no retraining your keyboard muscle memory. Keep your terminal, tmux configuration, keybindings, plugins, and workflows while adding a persistent sidebar for finding, opening, and switching between sessions across your machine and SSH hosts. Your sessions remain ordinary tmux sessions; mtmux simply puts them within reach.
