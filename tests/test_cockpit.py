@@ -203,6 +203,64 @@ class CockpitLayoutTest(unittest.TestCase):
         enable_mouse.assert_called_once_with()
         enable_clipboard.assert_called_once_with()
 
+    def test_switch_uses_valid_right_pane_and_supplied_attach_command(self):
+        calls = []
+        target = cockpit.Target("local", "work")
+        with (
+            patch.object(cockpit, "right_pane", return_value="%2"),
+            patch.object(cockpit.tmux, "tmux", side_effect=lambda *args, **kwargs: calls.append(args)),
+        ):
+            cockpit.switch(target, "attach work")
+
+        self.assertEqual(
+            calls,
+            [
+                ("set-option", "-t", "mtmux", "@mtmux_current_target", "local:work"),
+                ("set-option", "-u", "-t", "mtmux", "@mtmux_bell_target"),
+                ("respawn-pane", "-k", "-t", "%2", "attach work"),
+                ("select-pane", "-t", "%2"),
+            ],
+        )
+
+    def test_switch_rejects_missing_cockpit(self):
+        with patch.object(cockpit, "right_pane", return_value=None):
+            with self.assertRaisesRegex(SystemExit, "No valid mtmux cockpit"):
+                cockpit.switch(cockpit.Target("local", "work"), "attach work")
+
+    def test_show_help_respawns_right_pane(self):
+        with (
+            patch.object(cockpit, "right_pane", return_value="%2"),
+            patch.object(cockpit, "load_prefix", return_value="C-x"),
+            patch.object(cockpit.tmux, "tmux") as tmux_call,
+        ):
+            cockpit.show_help()
+
+        command = tmux_call.call_args.args
+        self.assertEqual(command[:4], ("respawn-pane", "-k", "-t", "%2"))
+        self.assertIn("C-x s  focus/open sidebar", command[4])
+
+    def test_current_target_recovers_from_right_pane_command(self):
+        with (
+            patch.object(cockpit, "_option", return_value=""),
+            patch.object(cockpit, "right_pane", return_value="%2"),
+            patch.object(cockpit.tmux, "out", return_value="ssh -t dev 'tmux -T clipboard new-session -A -s work'"),
+        ):
+            self.assertEqual(cockpit.current_target(), cockpit.Target("ssh", "work", "dev"))
+
+    def test_bell_target_returns_valid_target_only(self):
+        with patch.object(cockpit, "_option", side_effect=["local:work", "bad"]):
+            self.assertEqual(cockpit.bell_target(), cockpit.Target("local", "work"))
+            self.assertIsNone(cockpit.bell_target())
+
+    def test_sidebar_active_reads_managed_sidebar_pane(self):
+        with (
+            patch.object(cockpit, "_option", return_value="%1"),
+            patch.object(cockpit.tmux, "out", return_value="1") as out,
+        ):
+            self.assertTrue(cockpit.sidebar_active())
+
+        out.assert_called_once_with("display-message", "-p", "-t", "%1", "#{pane_active}", check=False)
+
     def test_install_bell_hook_enables_outer_tmux_bells(self):
         calls = []
 

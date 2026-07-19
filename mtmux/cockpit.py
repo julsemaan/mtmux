@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
 import sys
 
 from .config import ensure_config, load_prefix, load_sidebar_width
+from .names import Target, parse_target
 from . import tmux
 
 def help_command(prefix: str) -> str:
@@ -39,6 +41,12 @@ Examples
 SIDEBAR = f"{shlex.quote(sys.executable)} -m mtmux sidebar"
 FOCUS_SIDEBAR = f"{shlex.quote(sys.executable)} -m mtmux focus-sidebar"
 TARGET = f"{tmux.SESSION}:{tmux.WINDOW}"
+COCKPIT_OPTION = "@mtmux_cockpit"
+SIDEBAR_PANE_OPTION = "@mtmux_sidebar_pane"
+RIGHT_PANE_OPTION = "@mtmux_right_pane"
+CURRENT_TARGET_OPTION = "@mtmux_current_target"
+BELL_TARGET_OPTION = "@mtmux_bell_target"
+NO_COCKPIT = "No valid mtmux cockpit. Run: mtmux cockpit"
 
 
 def _option(name: str) -> str:
@@ -50,17 +58,17 @@ def _window_exists() -> bool:
 
 
 def _valid() -> bool:
-    if _option("@mtmux_cockpit") != "1":
+    if _option(COCKPIT_OPTION) != "1":
         return False
-    left = _option("@mtmux_sidebar_pane")
-    right = _option("@mtmux_right_pane")
+    left = _option(SIDEBAR_PANE_OPTION)
+    right = _option(RIGHT_PANE_OPTION)
     return bool(left and right and tmux.has_pane(left) and tmux.has_pane(right))
 
 
 def _set_markers(left: str, right: str) -> None:
-    tmux.tmux("set-option", "-t", tmux.SESSION, "@mtmux_cockpit", "1")
-    tmux.tmux("set-option", "-t", tmux.SESSION, "@mtmux_sidebar_pane", left)
-    tmux.tmux("set-option", "-t", tmux.SESSION, "@mtmux_right_pane", right)
+    tmux.tmux("set-option", "-t", tmux.SESSION, COCKPIT_OPTION, "1")
+    tmux.tmux("set-option", "-t", tmux.SESSION, SIDEBAR_PANE_OPTION, left)
+    tmux.tmux("set-option", "-t", tmux.SESSION, RIGHT_PANE_OPTION, right)
 
 
 def _fix_layout(left: str, sidebar_width: int) -> None:
@@ -136,12 +144,12 @@ def ensure_cockpit() -> None:
     prefix = load_prefix()
     sidebar_width = load_sidebar_width()
     if _valid():
-        left = _option("@mtmux_sidebar_pane")
-        right = _option("@mtmux_right_pane")
+        left = _option(SIDEBAR_PANE_OPTION)
+        right = _option(RIGHT_PANE_OPTION)
         _configure_cockpit(left, right, prefix, sidebar_width)
         return
-    if _option("@mtmux_cockpit") == "1":
-        right = _option("@mtmux_right_pane")
+    if _option(COCKPIT_OPTION) == "1":
+        right = _option(RIGHT_PANE_OPTION)
         if right and tmux.has_pane(right):
             left = tmux.out("split-window", "-h", "-b", "-l", str(sidebar_width), "-P", "-F", "#{pane_id}", "-t", right, SIDEBAR)
             _configure_cockpit(left, right, prefix, sidebar_width)
@@ -188,5 +196,58 @@ def focus_sidebar() -> int:
 def right_pane() -> str | None:
     if not _valid():
         return None
-    pane = _option("@mtmux_right_pane")
+    pane = _option(RIGHT_PANE_OPTION)
     return pane if pane and tmux.has_pane(pane) else None
+
+
+def _require_right_pane() -> str:
+    pane = right_pane()
+    if not pane:
+        raise SystemExit(NO_COCKPIT)
+    return pane
+
+
+def switch(target: Target, attach_command: str) -> None:
+    pane = _require_right_pane()
+    tmux.tmux("set-option", "-t", tmux.SESSION, CURRENT_TARGET_OPTION, target.format())
+    tmux.tmux("set-option", "-u", "-t", tmux.SESSION, BELL_TARGET_OPTION)
+    tmux.tmux("respawn-pane", "-k", "-t", pane, attach_command)
+    tmux.tmux("select-pane", "-t", pane)
+
+
+def show_help() -> None:
+    tmux.tmux("respawn-pane", "-k", "-t", _require_right_pane(), help_command(load_prefix()))
+
+
+def _target_option(name: str) -> Target | None:
+    text = _option(name)
+    if not text:
+        return None
+    try:
+        return parse_target(text)
+    except SystemExit:
+        return None
+
+
+def current_target() -> Target | None:
+    if target := _target_option(CURRENT_TARGET_OPTION):
+        return target
+    pane = right_pane()
+    command = tmux.out("display-message", "-p", "-t", pane or "", "#{pane_start_command}", check=False)
+    try:
+        if match := re.search(r"ssh -t ([A-Za-z0-9_.-]+) .* -s ([A-Za-z0-9_.-]+)", command):
+            return Target("ssh", match.group(2), match.group(1))
+        if match := re.search(r"(?:^| )tmux new-session .* -s ([A-Za-z0-9_.-]+)", command):
+            return Target("local", match.group(1))
+    except SystemExit:
+        pass
+    return None
+
+
+def bell_target() -> Target | None:
+    return _target_option(BELL_TARGET_OPTION)
+
+
+def sidebar_active() -> bool:
+    pane = _option(SIDEBAR_PANE_OPTION)
+    return not pane or tmux.out("display-message", "-p", "-t", pane, "#{pane_active}", check=False) == "1"
