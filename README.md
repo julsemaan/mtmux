@@ -10,7 +10,7 @@
 
 `mtmux` runs inside your existing terminal and works on top of tmux. No new terminal app, no replacement tmux setup, no retraining your keyboard muscle memory. Keep your terminal, tmux configuration, keybindings, plugins, and workflows while adding a persistent sidebar for finding, opening, and switching between sessions across your machine and SSH hosts. Your sessions remain ordinary tmux sessions; mtmux simply puts them within reach.
 
-Star important sessions, see at a glance which ones need attention, and jump between local and remote work—without hunting through terminal tabs.
+Star important sessions, see at a glance which ones need attention, and jump between local and remote work without hunting through terminal tabs.
 
 ## Why mtmux?
 
