@@ -308,7 +308,7 @@ class SidebarDrawTest(unittest.TestCase):
             self.assertEqual(_prompt(screen, "session: "), "y")
 
         self.assertEqual(screen.calls[0], ("timeout", -1))
-        self.assertEqual(screen.calls[-1], ("timeout", 500))
+        self.assertEqual(screen.calls[-1], ("timeout", 50))
 
     def test_prompt_esc_cancels(self):
         screen = FakeScreen([27])
@@ -324,7 +324,7 @@ class SidebarDrawTest(unittest.TestCase):
         self.assertEqual(screen.calls[2], ("addnstr", 4, 0, "kill work? y/N", 19))
         self.assertEqual(screen.calls[4], ("getch",))
         self.assertEqual(screen.calls[0], ("timeout", -1))
-        self.assertEqual(screen.calls[-1], ("timeout", 500))
+        self.assertEqual(screen.calls[-1], ("timeout", 50))
 
     def test_title_adds_terminal_emoji_with_ascii_fallback(self):
         screen = FakeScreen(size=(5, 40))
@@ -455,11 +455,10 @@ class SidebarDrawTest(unittest.TestCase):
             local_bells=("notes",),
             remotes={"dev": source("ssh", ("chat",), ("chat",), "dev")},
         )
-        with patch("mtmux.sidebar.cockpit.bell_target", return_value=Target("local", "work")):
-            self.assertEqual(
-                _bell_targets(discovered),
-                {Target("local", "work"), Target("local", "notes"), Target("ssh", "chat", "dev")},
-            )
+        self.assertEqual(
+            _bell_targets(discovered, Target("local", "work")),
+            {Target("local", "work"), Target("local", "notes"), Target("ssh", "chat", "dev")},
+        )
 
     def test_draw_marks_matching_bell_target(self):
         screen = FakeScreen(size=(8, 40))
@@ -481,7 +480,7 @@ class SidebarDrawTest(unittest.TestCase):
         screen = FakeScreen([ord("r"), -1, -1, ord("q")], size=(7, 60))
 
         with (
-            patch("mtmux.sidebar.time.monotonic", side_effect=[0, 4.9, 5.0]),
+            patch("mtmux.sidebar.time.monotonic", side_effect=[0, 0, 4.9, 5.0, 5.0]),
             patch("mtmux.sidebar.load_status_timeout", return_value=5),
             patch("mtmux.sidebar.curses.curs_set"),
             patch("mtmux.sidebar._init_colors"),
@@ -498,7 +497,7 @@ class SidebarDrawTest(unittest.TestCase):
         screen = FakeScreen([ord("r"), ord("?"), -1, -1, ord("q")], size=(7, 60))
 
         with (
-            patch("mtmux.sidebar.time.monotonic", side_effect=[0, 4, 4, 8, 9]),
+            patch("mtmux.sidebar.time.monotonic", side_effect=[0, 0, 4, 4, 8, 9, 9]),
             patch("mtmux.sidebar.load_status_timeout", return_value=5),
             patch("mtmux.sidebar.cockpit.show_help"),
             patch("mtmux.sidebar.curses.curs_set"),
@@ -516,7 +515,7 @@ class SidebarDrawTest(unittest.TestCase):
         screen = FakeScreen([ord("r"), -1, -1, ord("q")], size=(7, 60))
 
         with (
-            patch("mtmux.sidebar.time.monotonic", side_effect=[10, 11.9, 12]),
+            patch("mtmux.sidebar.time.monotonic", side_effect=[10, 10, 11.9, 12, 12]),
             patch("mtmux.sidebar.load_status_timeout", return_value=2) as load_timeout,
             patch("mtmux.sidebar.curses.curs_set"),
             patch("mtmux.sidebar._init_colors"),
@@ -544,11 +543,30 @@ class SidebarDrawTest(unittest.TestCase):
         ):
             run(screen)
 
-        self.assertIn(("timeout", 500), screen.calls)
+        self.assertIn(("timeout", 50), screen.calls)
         self.assertEqual(calls, [""])
 
+    def test_rapid_ui_ticks_do_not_accelerate_cockpit_bell_polling(self):
+        screen = FakeScreen([-1, -1, -1, ord("q")])
+        poller = unittest.mock.Mock()
+        poller.snapshot = snapshot()
+        poller.tick.return_value = False
+
+        with (
+            patch("mtmux.sidebar.DiscoveryPoller", return_value=poller),
+            patch("mtmux.sidebar.time.monotonic", side_effect=[0, 0.1, 0.49, 0.5]),
+            patch("mtmux.sidebar.cockpit.bell_target", return_value=None) as bell_target,
+            patch("mtmux.sidebar.curses.curs_set"),
+            patch("mtmux.sidebar._init_colors"),
+            patch("mtmux.sidebar._current_target", return_value=None),
+        ):
+            run(screen)
+
+        self.assertEqual(bell_target.call_count, 2)
+        self.assertEqual(poller.tick.call_count, 4)
+
     def test_run_beeps_once_for_new_background_bell(self):
-        screen = FakeScreen([ord("q")])
+        screen = FakeScreen([-1, -1, ord("q")])
         target = Target("local", "work")
 
         with (
@@ -564,13 +582,20 @@ class SidebarDrawTest(unittest.TestCase):
         beep.assert_called_once_with()
 
     def test_run_propagates_new_local_snapshot_bell_to_sidebar(self):
-        screen = FakeScreen([ord("q")], size=(8, 40))
+        screen = FakeScreen([-1, ord("q")], size=(8, 40))
         target = Target("local", "work")
-        idle = source("local", ("work",))
-        ringing = source("local", ("work",), ("work",))
+        poller = unittest.mock.Mock()
+        poller.snapshot = snapshot(local=("work",))
 
+        def tick():
+            ringing = snapshot(local=("work",), local_bells=("work",))
+            changed = poller.snapshot != ringing
+            poller.snapshot = ringing
+            return changed
+
+        poller.tick.side_effect = tick
         with (
-            patch("mtmux.discovery.local_snapshot", side_effect=[idle, ringing]),
+            patch("mtmux.sidebar.DiscoveryPoller", return_value=poller),
             patch("mtmux.sidebar.load_hosts", return_value=[]),
             patch("mtmux.sidebar.curses.curs_set"),
             patch("mtmux.sidebar.curses.beep") as beep,

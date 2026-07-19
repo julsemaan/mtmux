@@ -15,6 +15,10 @@ from .config import load_hosts, load_stars, load_status_timeout, save_stars
 from .names import Target, validate_name
 
 
+UI_POLL_INTERVAL_MS = 50
+COCKPIT_BELL_POLL_INTERVAL = 0.5
+
+
 @dataclass(frozen=True)
 class Effect:
     kind: Literal["switch", "create", "kill", "refresh", "help", "save_favorites", "quit"]
@@ -283,7 +287,7 @@ def _prompt(stdscr: curses.window, prompt: str) -> str | None:
         curses.noecho()
         stdscr.addnstr(h - 1, 0, " " * (w - 1), w - 1)
         stdscr.refresh()
-        stdscr.timeout(500)
+        stdscr.timeout(UI_POLL_INTERVAL_MS)
 
 
 def _read_key(stdscr: curses.window, prompt: str) -> int:
@@ -297,7 +301,7 @@ def _read_key(stdscr: curses.window, prompt: str) -> int:
     finally:
         stdscr.addnstr(h - 1, 0, " " * (w - 1), w - 1)
         stdscr.refresh()
-        stdscr.timeout(500)
+        stdscr.timeout(UI_POLL_INTERVAL_MS)
 
 
 def _filter_key(filter_text: str, key: int) -> str | None:
@@ -308,10 +312,10 @@ def _filter_key(filter_text: str, key: int) -> str | None:
     return None
 
 
-def _bell_targets(snapshot: SessionSnapshot) -> set[Target]:
+def _bell_targets(snapshot: SessionSnapshot, cockpit_target: Target | None = None) -> set[Target]:
     targets = set(snapshot.bells)
-    if target := cockpit.bell_target():
-        targets.add(target)
+    if cockpit_target:
+        targets.add(cockpit_target)
     return targets
 
 
@@ -552,7 +556,9 @@ def run(stdscr: curses.window) -> None:
     state.selected_index = _selected_index(entries, state.selected_target)
     _sync_selection(state, entries)
     observed_target = state.selected_target
-    stdscr.timeout(500)
+    cockpit_bell_target: Target | None = None
+    next_cockpit_bell_poll = 0.0
+    stdscr.timeout(UI_POLL_INTERVAL_MS)
 
     def show_status(message: str) -> None:
         _set_status(state, message, status_timeout)
@@ -564,7 +570,8 @@ def run(stdscr: curses.window) -> None:
 
     try:
         while True:
-            if state.status_deadline is not None and time.monotonic() >= state.status_deadline:
+            now = time.monotonic()
+            if state.status_deadline is not None and now >= state.status_deadline:
                 state.status = ""
                 state.status_deadline = None
             if poller.tick():
@@ -572,7 +579,10 @@ def run(stdscr: curses.window) -> None:
             selectable = _selectable(entries)
             if selectable and state.selected_index not in selectable:
                 state.selected_index = selectable[0]
-            bell_targets = _bell_targets(poller.snapshot)
+            if now >= next_cockpit_bell_poll:
+                cockpit_bell_target = cockpit.bell_target()
+                next_cockpit_bell_poll = now + COCKPIT_BELL_POLL_INTERVAL
+            bell_targets = _bell_targets(poller.snapshot, cockpit_bell_target)
             current_target = _current_target()
             if current_target != observed_target:
                 if current_target != state.selected_target:

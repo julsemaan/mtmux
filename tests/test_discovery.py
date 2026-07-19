@@ -141,13 +141,38 @@ class DiscoveryPollerTest(unittest.TestCase):
     def make_poller(self, hosts, **kwargs):
         return DiscoveryPoller(hosts, local=kwargs.pop("local", Mock(return_value=EMPTY_LOCAL)), **kwargs)
 
-    def test_tick_refreshes_local_bells(self):
+    def test_local_snapshot_is_sampled_at_startup_and_not_on_rapid_ticks(self):
+        local = Mock(return_value=EMPTY_LOCAL)
+        poller = self.make_poller([], local=local, clock=Mock(side_effect=[0, 0.1, 0.49]))
+
+        self.assertFalse(poller.tick())
+        self.assertFalse(poller.tick())
+
+        local.assert_called_once_with()
+
+    def test_local_bells_refresh_after_poll_interval_without_catch_up(self):
         bell = Target("local", "work")
-        local = Mock(side_effect=[EMPTY_LOCAL, SourceSnapshot(True, (bell,), frozenset({bell}))])
-        poller = self.make_poller([], local=local)
+        ringing = SourceSnapshot(True, (bell,), frozenset({bell}))
+        local = Mock(side_effect=[EMPTY_LOCAL, ringing, EMPTY_LOCAL])
+        poller = self.make_poller([], local=local, clock=Mock(side_effect=[0, 0.5, 2, 2.49]))
 
         self.assertTrue(poller.tick())
-        self.assertEqual(poller.snapshot.bells, frozenset({bell}))
+        self.assertTrue(poller.tick())
+        self.assertFalse(poller.tick())
+
+        self.assertEqual(local.call_count, 3)
+
+    def test_refresh_samples_local_immediately_and_resets_deadline(self):
+        bell = Target("local", "work")
+        ringing = SourceSnapshot(True, (bell,), frozenset({bell}))
+        local = Mock(side_effect=[EMPTY_LOCAL, ringing, EMPTY_LOCAL])
+        poller = self.make_poller([], local=local, clock=Mock(side_effect=[0, 0.1, 0.59, 0.6]))
+
+        self.assertTrue(poller.refresh())
+        self.assertFalse(poller.tick())
+        self.assertTrue(poller.tick())
+
+        self.assertEqual(local.call_count, 3)
 
     def test_pending_process_does_not_duplicate_or_block(self):
         process = FakeProcess()
@@ -179,12 +204,12 @@ class DiscoveryPollerTest(unittest.TestCase):
         self.assertEqual(poller.snapshot.remotes["dev"].error, "no ssh")
 
     def test_refresh_updates_local_and_retries_remote_immediately(self):
-        clock = Mock(side_effect=[0, 1, 1])
+        clock = Mock(side_effect=[0, 0, 1, 1])
         popen = Mock(side_effect=[FakeProcess(255), FakeProcess(0)])
         local = SourceSnapshot(True, (Target("local", "new"),), frozenset())
         poller = self.make_poller(
             ["dev"], popen=popen, clock=clock, random=Mock(return_value=1),
-            local=Mock(side_effect=[EMPTY_LOCAL, EMPTY_LOCAL, local, local]),
+            local=Mock(side_effect=[EMPTY_LOCAL, local]),
         )
 
         poller.tick()
@@ -195,7 +220,7 @@ class DiscoveryPollerTest(unittest.TestCase):
         self.assertEqual(popen.call_count, 2)
 
     def test_timeout_isolated_from_completed_host(self):
-        clock = Mock(side_effect=[0, 11])
+        clock = Mock(side_effect=[0, 0, 11])
         slow = FakeProcess()
         healthy = FakeProcess(0, "work:0:-\n")
         poller = self.make_poller(["slow", "dev"], popen=Mock(side_effect=[slow, healthy, FakeProcess()]), clock=clock)
@@ -235,7 +260,7 @@ class DiscoveryPollerTest(unittest.TestCase):
         self.assertEqual(poller.snapshot.remotes["broken"].error, "tmux: permission denied")
 
     def test_failures_use_capped_exponential_backoff_with_jitter(self):
-        clock = Mock(side_effect=[0, 2, 6, 14, 30, 62, 122, 182])
+        clock = Mock(side_effect=[0, 0, 2, 6, 14, 30, 62, 122, 182])
         popen = Mock(side_effect=[FakeProcess(255) for _ in range(8)])
         poller = self.make_poller(["dev"], popen=popen, clock=clock, random=Mock(return_value=1))
 
@@ -245,7 +270,7 @@ class DiscoveryPollerTest(unittest.TestCase):
         self.assertEqual(poller._next["dev"], 242)
 
     def test_success_and_failure_backoff_with_jitter(self):
-        clock = Mock(side_effect=[0, 2])
+        clock = Mock(side_effect=[0, 0, 2])
         popen = Mock(side_effect=[FakeProcess(255), FakeProcess(0)])
         poller = self.make_poller(["dev"], popen=popen, clock=clock, random=Mock(return_value=1))
 
@@ -264,7 +289,7 @@ class DiscoveryPollerTest(unittest.TestCase):
 
     def test_timeout_kills_and_reaps_process_that_ignores_terminate(self):
         process = TerminateIgnoringProcess()
-        poller = self.make_poller(["dev"], popen=Mock(return_value=process), clock=Mock(side_effect=[0, 11]))
+        poller = self.make_poller(["dev"], popen=Mock(return_value=process), clock=Mock(side_effect=[0, 0, 11]))
         poller.tick()
 
         self.assertTrue(poller.tick())
@@ -277,7 +302,7 @@ class DiscoveryPollerTest(unittest.TestCase):
         stale = FakeProcess()
         poller = self.make_poller(
             ["dev"], popen=Mock(side_effect=[completed, stale]),
-            clock=Mock(side_effect=[0, 1, 1]),
+            clock=Mock(side_effect=[0, 0, 1, 1]),
         )
         target = Target("ssh", "work", "dev")
         poller.tick()

@@ -14,6 +14,7 @@ from .names import Target, validate_host
 
 WINDOWS_COMMAND = 'tmux list-windows -a -F "#{session_name}:#{window_bell_flag}:#{window_flags}"'
 MAX_REMOTE_OUTPUT = 1024 * 1024
+LOCAL_POLL_INTERVAL = 0.5
 SUCCESS_POLL_INTERVAL = 10
 MAX_FAILURE_POLL_INTERVAL = 60
 
@@ -175,6 +176,7 @@ class DiscoveryPoller:
         self._popen = popen
         self._clock = clock
         self._random = random
+        self._next_local_poll = self._clock() + LOCAL_POLL_INTERVAL
         self._active: dict[str, _Request] = {}
         self._next = dict.fromkeys(self.hosts, 0.0)
         self._failures = dict.fromkeys(self.hosts, 0)
@@ -223,9 +225,12 @@ class DiscoveryPoller:
 
     def tick(self) -> bool:
         now = self._clock()
-        snapshot = self._local_snapshot()
-        changed = snapshot != self.local
-        self.local = snapshot
+        changed = False
+        if now >= self._next_local_poll:
+            snapshot = self._local_snapshot()
+            changed = snapshot != self.local
+            self.local = snapshot
+            self._next_local_poll = now + LOCAL_POLL_INTERVAL
         for host in self.hosts:
             if host not in self._active and now >= self._next[host]:
                 changed |= self._start_request(host, now)
@@ -251,6 +256,7 @@ class DiscoveryPoller:
         changed = snapshot != self.local
         self.local = snapshot
         now = self._clock()
+        self._next_local_poll = now + LOCAL_POLL_INTERVAL
         for host in self.hosts:
             if host not in self._active:
                 self._next[host] = now
