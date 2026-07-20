@@ -310,9 +310,7 @@ class SidebarDrawTest(unittest.TestCase):
 
     def test_mouse_mask_registers_only_supported_events(self):
         expected = (
-            curses.BUTTON1_PRESSED
-            | curses.BUTTON1_CLICKED
-            | curses.BUTTON1_DOUBLE_CLICKED
+            curses.BUTTON1_CLICKED
             | curses.BUTTON4_PRESSED
             | getattr(curses, "BUTTON5_PRESSED", 0)
         )
@@ -355,7 +353,7 @@ class SidebarDrawTest(unittest.TestCase):
         _draw(screen, [Entry("LOCAL", "header")], 0, "", "")
 
         footer = [call[3].rstrip() for call in screen.calls if call[0] == "addnstr" and call[1] >= 5]
-        self.assertEqual(footer, ["↵ switch  f star  n new  x kill", "/ filter  r refresh  ? help  q quit"])
+        self.assertEqual(footer, ["↵ activate  f star  x kill", "/ filter  r refresh  ? help  q quit"])
 
     def test_footer_fills_terminal_width(self):
         screen = FakeScreen(size=(7, 60))
@@ -609,7 +607,7 @@ class SidebarDrawTest(unittest.TestCase):
             run(screen)
 
         primary = [call[3].rstrip() for call in screen.calls if call[0] == "addnstr" and call[1] == 5]
-        self.assertEqual(primary, ["↵ switch  f star  n new  x kill", "refreshing", "↵ switch  f star  n new  x kill"])
+        self.assertEqual(primary, ["↵ activate  f star  x kill", "refreshing", "↵ activate  f star  x kill"])
 
     def test_later_status_resets_deadline(self):
         screen = FakeScreen([ord("r"), ord("?"), -1, -1, ord("q")], size=(7, 60))
@@ -627,7 +625,7 @@ class SidebarDrawTest(unittest.TestCase):
             run(screen)
 
         primary = [call[3].rstrip() for call in screen.calls if call[0] == "addnstr" and call[1] == 5]
-        self.assertEqual(primary[-3:], ["refreshing", "help opened", "↵ switch  f star  n new  x kill"])
+        self.assertEqual(primary[-3:], ["refreshing", "help opened", "↵ activate  f star  x kill"])
 
     def test_custom_status_timeout_controls_expiry(self):
         screen = FakeScreen([ord("r"), -1, -1, ord("q")], size=(7, 60))
@@ -646,7 +644,7 @@ class SidebarDrawTest(unittest.TestCase):
         load_timeout.assert_called_once_with()
         primary = [call[3].rstrip() for call in screen.calls if call[0] == "addnstr" and call[1] == 5]
         self.assertIn("refreshing", primary)
-        self.assertEqual(primary[-1], "↵ switch  f star  n new  x kill")
+        self.assertEqual(primary[-1], "↵ activate  f star  x kill")
 
     def test_run_sets_timeout_and_refreshes_on_timeout(self):
         screen = FakeScreen([-1, ord("q")])
@@ -782,7 +780,7 @@ class SidebarDrawTest(unittest.TestCase):
         target = Target("local", "two")
         switch.assert_called_once_with(target, "env -u TMUX tmux -T clipboard new-session -A -s two")
 
-    def test_single_click_create_row_selects_without_opening_prompt(self):
+    def test_single_click_host_opens_prompt_once_and_creates_local_target(self):
         screen = FakeScreen([curses.KEY_MOUSE, ord("q")], size=(8, 30))
 
         with (
@@ -790,32 +788,30 @@ class SidebarDrawTest(unittest.TestCase):
             patch("mtmux.sidebar.curses.mousemask"),
             patch("mtmux.sidebar.curses.getmouse", return_value=(0, 0, 1, 0, curses.BUTTON1_CLICKED)),
             patch("mtmux.sidebar._init_colors"),
-            patch("mtmux.sidebar._entries", return_value=[Entry("new local", "create", host="")]),
+            patch("mtmux.sidebar._entries", return_value=[Entry("laptop", "host", host="")]),
+            patch("mtmux.sidebar._bell_targets", return_value=set()),
+            patch("mtmux.sidebar._current_target", return_value=None),
+            patch("mtmux.sidebar._session_prompt", return_value="new") as prompt,
+            patch("mtmux.sidebar.sessions.create") as create,
+            patch("mtmux.sidebar.cockpit.switch"),
+        ):
+            run(screen)
+
+        prompt.assert_called_once_with(screen)
+        create.assert_called_once_with(Target("local", "new"))
+
+    def test_n_no_longer_opens_prompt(self):
+        screen = FakeScreen([ord("n"), ord("q")])
+        with (
+            patch("mtmux.sidebar.curses.curs_set"),
+            patch("mtmux.sidebar._init_colors"),
+            patch("mtmux.sidebar._entries", return_value=[Entry("laptop", "host", host="")]),
             patch("mtmux.sidebar._bell_targets", return_value=set()),
             patch("mtmux.sidebar._current_target", return_value=None),
             patch("mtmux.sidebar._session_prompt") as prompt,
         ):
             run(screen)
-
         prompt.assert_not_called()
-
-    def test_double_click_reuses_switch_path(self):
-        target = Target("local", "work")
-        screen = FakeScreen([curses.KEY_MOUSE, ord("q")], size=(8, 30))
-
-        with (
-            patch("mtmux.sidebar.curses.curs_set"),
-            patch("mtmux.sidebar.curses.mousemask"),
-            patch("mtmux.sidebar.curses.getmouse", return_value=(0, 0, 1, 0, curses.BUTTON1_DOUBLE_CLICKED)),
-            patch("mtmux.sidebar._init_colors"),
-            patch("mtmux.sidebar._entries", return_value=[Entry("work", "session", target)]),
-            patch("mtmux.sidebar._bell_targets", return_value=set()),
-            patch("mtmux.sidebar._current_target", return_value=None),
-            patch("mtmux.sidebar.cockpit.switch") as switch,
-        ):
-            run(screen)
-
-        switch.assert_called_once_with(target, "env -u TMUX tmux -T clipboard new-session -A -s work")
 
     def test_wheel_reuses_wrapping_navigation(self):
         entries = [
@@ -1017,7 +1013,7 @@ class SidebarDrawTest(unittest.TestCase):
         sections = [(index, entry.label) for index, entry in enumerate(entries) if entry.kind == "section"]
         self.assertEqual(sections, [(0, "✱ STARRED"), (2, "ALL SESSIONS")])
         self.assertTrue(entries[1].starred_section)
-        self.assertEqual(entries[3].kind, "header")
+        self.assertEqual(entries[3].kind, "host")
 
     def test_sections_only_appear_when_visible_favorite_matches_filter(self):
         favorite = Target("local", "work")
@@ -1083,13 +1079,22 @@ class SidebarDrawTest(unittest.TestCase):
 
         self.assertTrue(any(entry.kind == "unavailable" and entry.label == "unavailable: permission denied" for entry in entries))
 
-    def test_headers_identify_local_hostname_and_ssh_alias(self):
+    def test_available_hosts_replace_create_rows_and_show_enter_affordance(self):
         with patch("mtmux.sidebar.socket.gethostname", return_value="laptop"), patch(
             "mtmux.sidebar._ascii", return_value=False
         ):
-            entries = _entries("", snapshot(remotes={"dev": None}))
+            entries = _entries("", snapshot(remotes={"dev": source("ssh", host="dev")}))
 
-        self.assertEqual([entry.label for entry in entries if entry.kind == "header"], ["💻 laptop", "🌐 dev"])
+        hosts = [entry for entry in entries if entry.kind == "host"]
+        self.assertEqual([(entry.label, entry.host) for entry in hosts], [("laptop", ""), ("dev", "dev")])
+        self.assertFalse(any(entry.kind == "create" for entry in entries))
+        self.assertEqual(_entry_lines(hosts[0], False, set(), None, 40), ["💻 laptop                             ＋"])
+
+    def test_filtering_and_unavailable_hosts_are_not_selectable(self):
+        filtered = _entries("work", snapshot(local=("work",), remotes={"dev": source("ssh", ("work",), host="dev")}))
+        unavailable = _entries("", snapshot(local_available=False, remotes={"dev": None}))
+
+        self.assertFalse(any(entry.kind == "host" for entry in filtered + unavailable))
 
     def test_ascii_headers_preserve_text_only_labels(self):
         with patch.dict("mtmux.sidebar.os.environ", {"MTMUX_ASCII": "1"}), patch(
@@ -1097,7 +1102,8 @@ class SidebarDrawTest(unittest.TestCase):
         ):
             entries = _entries("", snapshot(remotes={"dev": None}))
 
-        self.assertEqual([entry.label for entry in entries if entry.kind == "header"], ["LOCAL laptop", "SSH dev"])
+        self.assertEqual([entry.label for entry in entries if entry.kind == "host"], ["laptop"])
+        self.assertEqual([entry.label for entry in entries if entry.kind == "header"], ["SSH dev"])
 
     def test_filter_hides_new_session_options(self):
         entries = _entries("work", snapshot(local=("work",), remotes={"dev": source("ssh", ("work",), host="dev")}))
@@ -1320,11 +1326,11 @@ class SidebarDrawTest(unittest.TestCase):
         screen = FakeScreen(size=(9, 30))
 
         with patch("mtmux.sidebar._ascii", return_value=False):
-            _draw(screen, [Entry("LOCAL", "header"), Entry("work", "session", Target("local", "work")), Entry("new local", "create", host="")], 1, "ok", "")
+            _draw(screen, [Entry("laptop", "host", host=""), Entry("work", "session", Target("local", "work"))], 1, "ok", "")
 
         text = "\n".join(str(call) for call in screen.calls)
         self.assertIn("● work", text)
-        self.assertIn("＋ new local", text)
+        self.assertIn("💻 laptop                  ＋", text)
 
     def test_selection_pointer_and_active_color_are_independent(self):
         active = Target("local", "active")
@@ -1379,15 +1385,14 @@ class SidebarDrawTest(unittest.TestCase):
 
         self.assertEqual(_selected_index(entries, Target("local", "work")), 2)
 
-    def test_selected_index_prefers_session_over_earlier_create(self):
+    def test_selected_index_prefers_session_over_earlier_host(self):
         entries = [
-            Entry("LOCAL", "header"),
-            Entry("new local", "create", host=""),
-            Entry("SSH dev", "header"),
+            Entry("laptop", "host", host=""),
+            Entry("dev", "host", host="dev"),
             Entry("work", "session", Target("ssh", "work", "dev"), "dev"),
         ]
 
-        self.assertEqual(_selected_index(entries, Target("local", "missing")), 3)
+        self.assertEqual(_selected_index(entries, Target("local", "missing")), 2)
 
     def test_pending_remote_does_not_block_quit_and_poller_closes(self):
         screen = FakeScreen([ord("q")], size=(10, 30))
@@ -1410,19 +1415,15 @@ class SidebarDrawTest(unittest.TestCase):
         self.assertTrue(any(call[0] == "addnstr" and "connecting" in call[3] for call in screen.calls))
 
     def test_new_remote_session_keeps_selection_until_refresh_then_selects_it(self):
-        screen = FakeScreen([curses.KEY_DOWN, 10, ord("n"), ord("e"), ord("w"), 10, -1, ord("q")], size=(10, 30))
+        screen = FakeScreen([curses.KEY_UP, 10, ord("n"), ord("e"), ord("w"), 10, -1, ord("q")], size=(10, 30))
         poller = unittest.mock.Mock()
         poller.snapshot = snapshot(remotes={"dev": source("ssh", ("work",), host="dev")})
         current = [Target("ssh", "work", "dev")]
         selections = []
-        refresh_ticks = [0]
-
         def tick():
-            if current[0].session == "new":
-                refresh_ticks[0] += 1
-                if refresh_ticks[0] == 2:
-                    poller.snapshot = snapshot(remotes={"dev": source("ssh", ("work", "new"), host="dev")})
-                    return True
+            if current[0].session == "new" and Target("ssh", "new", "dev") not in poller.snapshot.sessions:
+                poller.snapshot = snapshot(remotes={"dev": source("ssh", ("work", "new"), host="dev")})
+                return True
             return False
 
         def switch(target, command):
@@ -1444,7 +1445,8 @@ class SidebarDrawTest(unittest.TestCase):
         ):
             run(screen)
 
-        self.assertEqual(selections[-2:], [None, Target("ssh", "new", "dev")])
+        self.assertEqual(current[0], Target("ssh", "new", "dev"))
+        self.assertIn(Target("ssh", "new", "dev"), selections)
 
     def test_snapshot_completion_updates_remote_rows(self):
         screen = FakeScreen([-1, ord("q")], size=(10, 30))

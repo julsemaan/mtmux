@@ -6,6 +6,7 @@ import os
 import socket
 import textwrap
 import time
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -44,7 +45,7 @@ class SidebarState:
 @dataclass(frozen=True)
 class Entry:
     label: str
-    kind: str  # section | header | session | create | unavailable
+    kind: str  # section | header | host | session | unavailable
     target: Target | None = None
     host: str | None = None
     starred: bool = False
@@ -131,7 +132,9 @@ def _entries(
     )
     if starred:
         out.append(Entry("ALL SESSIONS", "section"))
-    out.append(Entry(f"{icons['local_header']} {hostname}", "header"))
+    local_kind = "host" if snapshot.local.available and not filter_text else "header"
+    local_label = hostname if local_kind == "host" else f"{icons['local_header']} {hostname}"
+    out.append(Entry(local_label, local_kind, host=""))
     if not snapshot.local.available:
         label = f"unavailable: {snapshot.local.error}" if snapshot.local.error else "unavailable"
         out.append(Entry(label, "unavailable", host=""))
@@ -139,11 +142,12 @@ def _entries(
         for target in snapshot.local.sessions:
             if needle in target.session.lower():
                 out.append(Entry(target.session, "session", target, starred=target in favorites))
-    if not filter_text:
-        out.append(Entry("new local", "create", host=""))
 
     for host, source in snapshot.remotes.items():
-        out.append(Entry(f"{icons['remote_header']} {host}", "header"))
+        available = source is not None and source.available
+        host_kind = "host" if available and not filter_text else "header"
+        host_label = host if host_kind == "host" else f"{icons['remote_header']} {host}"
+        out.append(Entry(host_label, host_kind, host=host))
         if source is None:
             out.append(Entry("connecting…", "unavailable", host=host))
             continue
@@ -154,13 +158,11 @@ def _entries(
         for target in source.sessions:
             if needle in target.session.lower():
                 out.append(Entry(target.session, "session", target, host, target in favorites))
-        if not filter_text:
-            out.append(Entry(f"new on {host}", "create", host=host))
     return out
 
 
 def _selectable(entries: list[Entry]) -> list[int]:
-    return [i for i, entry in enumerate(entries) if entry.kind in ("session", "create")]
+    return [i for i, entry in enumerate(entries) if entry.kind in ("session", "host")]
 
 
 def _selected_index(entries: list[Entry], target: Target | None) -> int:
@@ -168,7 +170,7 @@ def _selected_index(entries: list[Entry], target: Target | None) -> int:
         for i, entry in enumerate(entries):
             if entry.target == target:
                 return i
-    for kind in ("session", "create"):
+    for kind in ("session", "host"):
         for i, entry in enumerate(entries):
             if entry.kind == kind:
                 return i
@@ -190,7 +192,7 @@ def _sync_selection(state: SidebarState, entries: list[Entry]) -> None:
             state.selected_target = state.pending_selection
             state.selected_starred_section = entries[index].starred_section
             state.pending_selection = None
-            return
+        return
     if state.selected_target is not None:
         index = _target_index(entries, state.selected_target, state.selected_starred_section)
         if index is not None:
@@ -378,16 +380,14 @@ def _entry_at_row(entries: list[Entry], selected: int, row: int, height: int, fo
         return None
     for index in range(start, end):
         if entry_row < _entry_height(entries[index]):
-            return index if entries[index].kind in ("session", "create") else None
+            return index if entries[index].kind in ("session", "host") else None
         entry_row -= _entry_height(entries[index])
     return None
 
 
 def _mouse_mask() -> None:
     events = (
-        getattr(curses, "BUTTON1_PRESSED", 0),
         getattr(curses, "BUTTON1_CLICKED", 0),
-        getattr(curses, "BUTTON1_DOUBLE_CLICKED", 0),
         getattr(curses, "BUTTON4_PRESSED", 0),
         getattr(curses, "BUTTON5_PRESSED", 0),
     )
@@ -425,6 +425,22 @@ def _truncate(text: str, width: int) -> str:
     return ellipsis[:width] if width <= len(ellipsis) else text[: width - len(ellipsis)] + ellipsis
 
 
+def _cell_width(text: str) -> int:
+    return sum(0 if unicodedata.combining(char) else 2 if unicodedata.east_asian_width(char) in "WF" else 1 for char in text)
+
+
+def _truncate_cells(text: str, width: int) -> str:
+    if _cell_width(text) <= width:
+        return text
+    ellipsis = "..." if _ascii() else "…"
+    kept = ""
+    for char in text:
+        if _cell_width(kept + char + ellipsis) > width:
+            break
+        kept += char
+    return kept + ellipsis if kept else _truncate(ellipsis, width)
+
+
 def _entry_lines(
     entry: Entry,
     selected: bool,
@@ -441,6 +457,12 @@ def _entry_lines(
         return [entry.label + " " + rule * (width - len(entry.label) - 1)]
     if entry.kind == "header":
         return [_truncate(entry.label, width)]
+    if entry.kind == "host":
+        host_icon = icon["local_header"] if entry.host == "" else icon["remote_header"]
+        suffix = icon["create"]
+        label = _truncate_cells(f"{host_icon} {entry.label}", max(0, width - _cell_width(suffix) - 1))
+        padding = max(1, width - _cell_width(label) - _cell_width(suffix))
+        return [_truncate(label + " " * padding + suffix, width)]
     if entry.kind == "session":
         kind = "unavailable" if entry.unavailable_favorite else ("remote" if entry.target and entry.target.kind == "ssh" else "local")
         session_icon = icon["starred"] if entry.starred else icon[kind]
@@ -457,8 +479,6 @@ def _entry_lines(
         meta_prefix = f"    {source} "
         host = _truncate(entry.host or "", max(0, width - len(meta_prefix) - len(suffix)))
         return [first, meta_prefix + host + suffix]
-    if entry.kind == "create":
-        return [_truncate(f"{pointer} {icon['create']} {entry.label}", width)]
     return [_truncate(f"  {icon['unavailable']} {entry.label}", width)]
 
 
@@ -467,7 +487,7 @@ def _entry_attr(entry: Entry, active: bool, dimmed: bool = False) -> int:
         attr = _color("active") or curses.A_REVERSE
     elif entry.kind == "section":
         attr = _color("section") or curses.A_BOLD
-    elif entry.kind == "header":
+    elif entry.kind in ("header", "host"):
         attr = curses.A_BOLD
     elif entry.unavailable_favorite:
         attr = _color("unavailable") or curses.A_DIM
@@ -475,8 +495,6 @@ def _entry_attr(entry: Entry, active: bool, dimmed: bool = False) -> int:
         attr = _color("remote")
     elif entry.kind == "session":
         attr = _color("local")
-    elif entry.kind == "create":
-        attr = _color("create")
     elif entry.kind == "unavailable":
         attr = _color("unavailable") or curses.A_DIM
     else:
@@ -518,7 +536,8 @@ def _draw_entries(
         selected_entry = idx == selected
         active_entry = entry.target is not None and entry.target == current_target
         lines = _entry_lines(entry, selected_entry and not dimmed, bell_targets, current_target, w - 1)
-        base_attr = _entry_attr(entry, active_entry, dimmed)
+        host_selected = selected_entry and entry.kind == "host" and not dimmed
+        base_attr = _entry_attr(entry, active_entry or host_selected, dimmed)
         for line_number, line in enumerate(lines):
             if row >= h - 1:
                 break
@@ -541,7 +560,7 @@ def _draw_footer(
     if filtering:
         logical_rows = ["type to filter  backspace edit", f"esc clear  {'Enter' if _ascii() else '↵'} switch"]
     else:
-        logical_rows = [status or f"{'Enter' if _ascii() else '↵'} switch  f star  n new  x kill", "/ filter  r refresh  ? help  q quit"]
+        logical_rows = [status or f"{'Enter' if _ascii() else '↵'} activate  f star  x kill", "/ filter  r refresh  ? help  q quit"]
     width = max(1, w - 1)
     lines = [line for logical_row in logical_rows for line in (textwrap.wrap(logical_row, width=width) or [""])]
     attr = _color("title") or (curses.A_BOLD | curses.A_REVERSE)
@@ -670,13 +689,8 @@ def run(stdscr: curses.window) -> None:
                     state.selected_index = index
                     state.selected_target = entries[index].target
                     state.selected_starred_section = entries[index].starred_section
-                    if mouse_state & (getattr(curses, "BUTTON1_DOUBLE_CLICKED", 0) or 0):
+                    if mouse_state & (getattr(curses, "BUTTON1_CLICKED", 0) or 0):
                         key = curses.KEY_ENTER
-                    elif mouse_state & ((getattr(curses, "BUTTON1_CLICKED", 0) or 0) | (getattr(curses, "BUTTON1_PRESSED", 0) or 0)):
-                        if entries[index].kind == "session":
-                            key = curses.KEY_ENTER
-                        else:
-                            continue
                     else:
                         continue
             if state.filtering:
@@ -733,7 +747,7 @@ def run(stdscr: curses.window) -> None:
                     continue
                 if entry.target:
                     effect = _transition(state, "switch", entry.target)
-                elif entry.kind == "create":
+                elif entry.kind == "host":
                     try:
                         curses.curs_set(1)
                         name = _session_prompt(stdscr)
@@ -757,20 +771,6 @@ def run(stdscr: curses.window) -> None:
                     show_status("cancelled")
                     continue
                 effect = _transition(state, "kill", entry.target)
-            elif key == ord("n"):
-                entry = entries[state.selected_index]
-                host = entry.host if entry.kind == "create" else (entry.target.host if entry.target and entry.target.kind == "ssh" else "")
-                try:
-                    curses.curs_set(1)
-                    name = _session_prompt(stdscr)
-                    curses.curs_set(0)
-                    if not name:
-                        show_status("cancelled")
-                        continue
-                    target = Target("local", name) if host == "" else Target("ssh", name, host)
-                    effect = _transition(state, "create", target)
-                except SystemExit as error:
-                    show_status(str(error))
             if effect:
                 if _execute(effect, state, poller, status_timeout):
                     return
