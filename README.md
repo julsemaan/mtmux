@@ -129,8 +129,9 @@ Starred sessions appear first in persisted order and remain in their LOCAL/SSH s
 - click available host row: select and open creation prompt
 - wheel over sidebar: navigate selectable session and host rows
 - right-pane mouse events: forwarded by outer tmux to mouse-aware applications
+- live border dragging: disabled so text selection can cross the sidebar divider without resizing it
 
-Tmux mouse capture may require holding `Shift` for terminal-native text selection.
+Resize the sidebar with standard tmux `C-s C-Left` / `C-s C-Right` bindings. Tmux mouse capture may require holding `Shift` for terminal-native text selection.
 
 ## Clipboard
 

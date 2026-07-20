@@ -98,6 +98,7 @@ def _install_bindings(prefix: str) -> None:
 
 def _enable_mouse() -> None:
     tmux.tmux("set-option", "-t", tmux.SESSION, "mouse", "on")
+    tmux.tmux("unbind-key", "-q", "-T", "root", "MouseDrag1Border")
 
 
 def _enable_clipboard() -> None:

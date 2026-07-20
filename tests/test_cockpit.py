@@ -104,11 +104,17 @@ class CockpitLayoutTest(unittest.TestCase):
             ],
         )
 
-    def test_enable_mouse_sets_runtime_session_option(self):
+    def test_enable_mouse_sets_runtime_option_without_live_border_dragging(self):
         with patch.object(cockpit.tmux, "tmux") as tmux_call:
             cockpit._enable_mouse()
 
-        tmux_call.assert_called_once_with("set-option", "-t", "mtmux", "mouse", "on")
+        self.assertEqual(
+            tmux_call.call_args_list,
+            [
+                unittest.mock.call("set-option", "-t", "mtmux", "mouse", "on"),
+                unittest.mock.call("unbind-key", "-q", "-T", "root", "MouseDrag1Border"),
+            ],
+        )
 
     def test_enable_clipboard_sets_runtime_server_option(self):
         with patch.object(cockpit.tmux, "tmux") as tmux_call:

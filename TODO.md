@@ -13,4 +13,4 @@
 - [x] When defocusing the left pane, it should highlight the currently active session
 - [x] When cycling through the various sessions with the keyboard, it is not obvious which is active because we use the highlight to show the active one and the selection. Rethink it
 - [x] When switching from one session to another, it creates a bell ring. Doesn't happen 100% of the time for some reason
-- [] Prevent sidebar from being resize live in tmux (interferes with mouse selection to copy/paste). If possible, fix the issue without preventing the sidebar to be resized
+- [x] Prevent sidebar from being resized live in tmux (interferes with mouse selection to copy/paste) while retaining keyboard resizing
