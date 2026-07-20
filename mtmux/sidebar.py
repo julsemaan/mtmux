@@ -32,6 +32,8 @@ class Effect:
 class SidebarState:
     filter_text: str = ""
     filtering: bool = False
+    creation_host: str | None = None
+    creation_text: str = ""
     selected_target: Target | None = None
     selected_index: int = 0
     selected_starred_section: bool = False
@@ -290,30 +292,22 @@ def _current_target() -> Target | None:
     return cockpit.current_target()
 
 
-def _prompt(stdscr: curses.window, prompt: str) -> str | None:
-    h, w = stdscr.getmaxyx()
-    stdscr.timeout(-1)
-    curses.echo()
-    try:
-        stdscr.addnstr(h - 1, 0, " " * (w - 1), w - 1)
-        stdscr.addstr(h - 1, 0, prompt)
-        chars: list[str] = []
-        while True:
-            key = stdscr.getch()
-            if key in (27, 3):
-                return None
-            if key in (10, 13, curses.KEY_ENTER):
-                return "".join(chars).strip()
-            if key in (curses.KEY_BACKSPACE, 8, 127):
-                if chars:
-                    chars.pop()
-            elif 32 <= key <= 126 and len(chars) < max(0, w - len(prompt) - 1):
-                chars.append(chr(key))
-    finally:
-        curses.noecho()
-        stdscr.addnstr(h - 1, 0, " " * (w - 1), w - 1)
-        stdscr.refresh()
-        stdscr.timeout(UI_POLL_INTERVAL_MS)
+def _creation_key(state: SidebarState, key: int) -> Effect | None:
+    if key in (27, 3):
+        state.creation_host = None
+        state.creation_text = ""
+    elif key in (curses.KEY_BACKSPACE, 8, 127):
+        state.creation_text = state.creation_text[:-1]
+    elif key in (10, 13, curses.KEY_ENTER):
+        name = validate_name(state.creation_text, "session")
+        host = state.creation_host
+        target = Target("local", name) if host == "" else Target("ssh", name, host)
+        state.creation_host = None
+        state.creation_text = ""
+        return Effect("create", target)
+    elif 32 <= key <= 126 and len(state.creation_text) < 64:
+        state.creation_text += chr(key)
+    return None
 
 
 def _read_key(stdscr: curses.window, prompt: str) -> int:
@@ -447,6 +441,8 @@ def _entry_lines(
     bell_targets: set[Target],
     current_target: Target | None,
     width: int,
+    creation_host: str | None = None,
+    creation_text: str = "",
 ) -> list[str]:
     icon = _icons()
     pointer = icon["selected"] if selected else " "
@@ -458,6 +454,11 @@ def _entry_lines(
     if entry.kind == "header":
         return [_truncate(entry.label, width)]
     if entry.kind == "host":
+        if creation_host is not None and entry.host == creation_host:
+            prefix = f"{icon['create']} {entry.label} / new: "
+            room = max(0, width - _cell_width(prefix))
+            text = creation_text[-room:] if room else ""
+            return [_truncate_cells(prefix, width - _cell_width(text)) + text]
         host_icon = icon["local_header"] if entry.host == "" else icon["remote_header"]
         suffix = icon["create"]
         label = _truncate_cells(f"{host_icon} {entry.label}", max(0, width - _cell_width(suffix) - 1))
@@ -522,7 +523,10 @@ def _draw_entries(
     bell_targets: set[Target],
     current_target: Target | None,
     dimmed: bool = False,
-) -> None:
+    creation_host: str | None = None,
+    creation_text: str = "",
+) -> tuple[int, int] | None:
+    cursor = None
     start, end = _viewport(entries, _view_index(entries, selected, current_target, dimmed), h)
     row = 1
     if start:
@@ -535,7 +539,10 @@ def _draw_entries(
         entry = entries[idx]
         selected_entry = idx == selected
         active_entry = entry.target is not None and entry.target == current_target
-        lines = _entry_lines(entry, selected_entry and not dimmed, bell_targets, current_target, w - 1)
+        lines = _entry_lines(
+            entry, selected_entry and not dimmed, bell_targets, current_target, w - 1,
+            creation_host, creation_text,
+        )
         host_selected = selected_entry and entry.kind == "host" and not dimmed
         base_attr = _entry_attr(entry, active_entry or host_selected, dimmed)
         for line_number, line in enumerate(lines):
@@ -543,10 +550,13 @@ def _draw_entries(
                 break
             attr = _fade(base_attr) if line_number and not active_entry else base_attr
             stdscr.addnstr(row, 0, line, w - 1, attr)
+            if entry.kind == "host" and entry.host == creation_host:
+                cursor = (row, min(w - 1, _cell_width(line)))
             row += 1
     if end < len(entries) and row < h - 1:
         attr = _color("hints") or curses.A_DIM
         stdscr.addnstr(row, 0, "↓ more", w - 1, _fade(attr) if dimmed else attr)
+    return cursor
 
 
 def _draw_footer(
@@ -556,8 +566,11 @@ def _draw_footer(
     status: str,
     filtering: bool = False,
     dimmed: bool = False,
+    creating: bool = False,
 ) -> int:
-    if filtering:
+    if creating:
+        logical_rows = ["Esc cancel · Enter create" if not _ascii() else "Esc cancel  Enter create"]
+    elif filtering:
         logical_rows = ["type to filter  backspace edit", f"esc clear  {'Enter' if _ascii() else '↵'} switch"]
     else:
         logical_rows = [status or f"{'Enter' if _ascii() else '↵'} activate  f star  x kill", "/ filter  r refresh  ? help  q quit"]
@@ -581,12 +594,14 @@ def _draw(
     bell_targets: set[Target] | None = None,
     current_target: Target | None = None,
     dimmed: bool = False,
+    creation_host: str | None = None,
+    creation_text: str = "",
 ) -> int:
     stdscr.erase()
     h, w = stdscr.getmaxyx()
     cursor = _draw_title(stdscr, w, entries, filter_text, filtering, dimmed)
-    footer_height = _draw_footer(stdscr, h, w, status, filtering, dimmed)
-    _draw_entries(
+    footer_height = _draw_footer(stdscr, h, w, status, filtering, dimmed, creation_host is not None)
+    creation_cursor = _draw_entries(
         stdscr,
         entries,
         selected,
@@ -595,16 +610,15 @@ def _draw(
         bell_targets or set(),
         current_target,
         dimmed,
+        creation_host,
+        creation_text,
     )
-    if filtering:
+    if creation_cursor:
+        stdscr.move(*creation_cursor)
+    elif filtering:
         stdscr.move(0, cursor)
     stdscr.refresh()
     return footer_height
-
-
-def _session_prompt(stdscr: curses.window) -> str | None:
-    value = _prompt(stdscr, "session: ")
-    return validate_name(value, "session") if value else None
 
 
 def run(stdscr: curses.window) -> None:
@@ -654,21 +668,37 @@ def run(stdscr: curses.window) -> None:
             dimmed = not _pane_active()
             render_state = (
                 tuple(entries), state.selected_index, state.status, state.filter_text,
-                state.filtering, frozenset(bell_targets), current_target, dimmed, stdscr.getmaxyx(),
+                state.filtering, state.creation_host, state.creation_text,
+                frozenset(bell_targets), current_target, dimmed, stdscr.getmaxyx(),
             )
             if render_state != rendered:
                 footer_height = _draw(
                     stdscr, entries, state.selected_index, state.status, state.filter_text,
                     state.filtering, bell_targets, current_target, dimmed,
+                    state.creation_host, state.creation_text,
                 )
                 rendered = render_state
             try:
                 key = stdscr.getch()
             except KeyboardInterrupt:
-                if not state.filtering:
+                if not state.filtering and state.creation_host is None:
                     raise
                 key = 3
             if key == -1:
+                continue
+            if state.creation_host is not None:
+                try:
+                    effect = _creation_key(state, key)
+                except SystemExit as error:
+                    show_status(str(error))
+                    continue
+                if state.creation_host is None:
+                    curses.curs_set(0)
+                    if effect:
+                        _execute(effect, state, poller, status_timeout)
+                        rebuild()
+                    else:
+                        show_status("cancelled")
                 continue
             if key == curses.KEY_MOUSE:
                 try:
@@ -748,17 +778,9 @@ def run(stdscr: curses.window) -> None:
                 if entry.target:
                     effect = _transition(state, "switch", entry.target)
                 elif entry.kind == "host":
-                    try:
-                        curses.curs_set(1)
-                        name = _session_prompt(stdscr)
-                        curses.curs_set(0)
-                        if not name:
-                            show_status("cancelled")
-                            continue
-                        target = Target("local", name) if entry.host == "" else Target("ssh", name, entry.host)
-                        effect = _transition(state, "create", target)
-                    except SystemExit as error:
-                        show_status(str(error))
+                    state.creation_host = entry.host
+                    state.creation_text = ""
+                    curses.curs_set(1)
             elif key == ord("x"):
                 entry = entries[state.selected_index]
                 if not entry.target:

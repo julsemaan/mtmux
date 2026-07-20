@@ -25,6 +25,7 @@ from mtmux.sidebar import (
     Entry,
     SidebarState,
     _bell_targets,
+    _creation_key,
     _draw,
     _fade,
     _entries,
@@ -34,7 +35,6 @@ from mtmux.sidebar import (
     _filter_key,
     _init_colors,
     _mouse_mask,
-    _prompt,
     _read_key,
     _selected_index,
     _sync_selection,
@@ -97,6 +97,32 @@ class FakeScreen:
 
 
 class SidebarStateTest(unittest.TestCase):
+    def test_creation_key_edits_submits_and_cancels(self):
+        state = SidebarState(creation_host="dev")
+
+        self.assertIsNone(_creation_key(state, ord("w")))
+        self.assertIsNone(_creation_key(state, ord("o")))
+        self.assertIsNone(_creation_key(state, 127))
+        self.assertEqual(state.creation_text, "w")
+        self.assertEqual(_creation_key(state, 10), Effect("create", Target("ssh", "w", "dev")))
+        self.assertIsNone(state.creation_host)
+        self.assertEqual(state.creation_text, "")
+
+        state.creation_host = ""
+        state.creation_text = "draft"
+        self.assertIsNone(_creation_key(state, 27))
+        self.assertIsNone(state.creation_host)
+        self.assertEqual(state.creation_text, "")
+
+    def test_creation_key_rejects_invalid_name_without_closing_editor(self):
+        state = SidebarState(creation_host="", creation_text="bad name")
+
+        with self.assertRaisesRegex(SystemExit, "Invalid session"):
+            _creation_key(state, 10)
+
+        self.assertEqual(state.creation_host, "")
+        self.assertEqual(state.creation_text, "bad name")
+
     def test_pending_selection_waits_for_discovery_then_selects_target(self):
         target = Target("ssh", "new", "dev")
         state = SidebarState(selected_index=2, pending_selection=target)
@@ -407,30 +433,33 @@ class SidebarDrawTest(unittest.TestCase):
         footer = [call for call in screen.calls if call[0] == "addnstr" and call[1] >= 5]
         self.assertTrue(all(call[5] & curses.A_BOLD and call[5] & curses.A_REVERSE for call in footer))
 
-    def test_prompt_blanks_line_after_input(self):
-        screen = FakeScreen([ord("b"), 10])
+    def test_inline_creation_renders_host_text_footer_and_cursor(self):
+        for host, label in (("", "laptop"), ("dev", "dev")):
+            screen = FakeScreen(size=(7, 40))
+            entries = [Entry(label, "host", host=host)]
 
-        with patch("mtmux.sidebar.curses.echo"), patch("mtmux.sidebar.curses.noecho"):
-            self.assertEqual(_prompt(screen, "session: "), "b")
+            with self.subTest(host=host), patch("mtmux.sidebar._ascii", return_value=False):
+                _draw(screen, entries, 0, "", "", creation_host=host, creation_text="work")
 
-        self.assertEqual(screen.calls[1], ("addnstr", 4, 0, " " * 19, 19))
-        self.assertEqual(screen.calls[-3], ("addnstr", 4, 0, " " * 19, 19))
-        self.assertEqual(screen.calls[-2], ("refresh",))
+            row = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 1)
+            self.assertIn("＋ " + label + " / new: work", row[3])
+            footer = [call[3].rstrip() for call in screen.calls if call[0] == "addnstr" and call[1] >= 5]
+            self.assertEqual(footer, ["Esc cancel · Enter create"])
+            self.assertTrue(any(call[0] == "move" and call[1] == 1 for call in screen.calls))
 
-    def test_prompt_uses_blocking_input_despite_sidebar_timeout(self):
-        screen = FakeScreen([ord("y"), 10])
+    def test_inline_creation_ascii_and_narrow_long_text_keep_cursor_visible(self):
+        screen = FakeScreen(size=(5, 16))
 
-        with patch("mtmux.sidebar.curses.echo"), patch("mtmux.sidebar.curses.noecho"):
-            self.assertEqual(_prompt(screen, "session: "), "y")
+        with patch("mtmux.sidebar._ascii", return_value=True):
+            _draw(
+                screen, [Entry("long-host", "host", host="long-host")], 0, "", "",
+                creation_host="long-host", creation_text="abcdefghijklmnop",
+            )
 
-        self.assertEqual(screen.calls[0], ("timeout", -1))
-        self.assertEqual(screen.calls[-1], ("timeout", 50))
-
-    def test_prompt_esc_cancels(self):
-        screen = FakeScreen([27])
-
-        with patch("mtmux.sidebar.curses.echo"), patch("mtmux.sidebar.curses.noecho"):
-            self.assertIsNone(_prompt(screen, "session: "))
+        row = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 1)
+        self.assertTrue(row[3].startswith("+ "))
+        cursor = next(call for call in screen.calls if call[0] == "move")
+        self.assertLess(cursor[2], 16)
 
     def test_read_key_gets_one_char_without_enter(self):
         screen = FakeScreen()
@@ -780,8 +809,8 @@ class SidebarDrawTest(unittest.TestCase):
         target = Target("local", "two")
         switch.assert_called_once_with(target, "env -u TMUX tmux -T clipboard new-session -A -s two")
 
-    def test_single_click_host_opens_prompt_once_and_creates_local_target(self):
-        screen = FakeScreen([curses.KEY_MOUSE, ord("q")], size=(8, 30))
+    def test_single_click_host_starts_inline_editor_and_creates_local_target(self):
+        screen = FakeScreen([curses.KEY_MOUSE, ord("n"), ord("e"), ord("w"), 10, ord("q")], size=(8, 30))
 
         with (
             patch("mtmux.sidebar.curses.curs_set"),
@@ -791,27 +820,46 @@ class SidebarDrawTest(unittest.TestCase):
             patch("mtmux.sidebar._entries", return_value=[Entry("laptop", "host", host="")]),
             patch("mtmux.sidebar._bell_targets", return_value=set()),
             patch("mtmux.sidebar._current_target", return_value=None),
-            patch("mtmux.sidebar._session_prompt", return_value="new") as prompt,
             patch("mtmux.sidebar.sessions.create") as create,
             patch("mtmux.sidebar.cockpit.switch"),
         ):
             run(screen)
 
-        prompt.assert_called_once_with(screen)
         create.assert_called_once_with(Target("local", "new"))
+        self.assertTrue(any(call[0] == "addnstr" and "new: new" in call[3] for call in screen.calls))
 
-    def test_n_no_longer_opens_prompt(self):
-        screen = FakeScreen([ord("n"), ord("q")])
+    def test_editor_pauses_navigation_and_esc_cancels(self):
+        entries = [Entry("laptop", "host", host=""), Entry("dev", "host", host="dev")]
+        selected = []
+        screen = FakeScreen([10, curses.KEY_DOWN, 27, ord("q")])
         with (
             patch("mtmux.sidebar.curses.curs_set"),
             patch("mtmux.sidebar._init_colors"),
-            patch("mtmux.sidebar._entries", return_value=[Entry("laptop", "host", host="")]),
+            patch("mtmux.sidebar._entries", return_value=entries),
             patch("mtmux.sidebar._bell_targets", return_value=set()),
             patch("mtmux.sidebar._current_target", return_value=None),
-            patch("mtmux.sidebar._session_prompt") as prompt,
+            patch("mtmux.sidebar._draw", side_effect=lambda _, __, index, *args: selected.append(index) or 1),
+            patch("mtmux.sidebar.sessions.create") as create,
         ):
             run(screen)
-        prompt.assert_not_called()
+
+        self.assertEqual(set(selected), {0})
+        create.assert_not_called()
+
+    def test_invalid_inline_name_stays_open_until_corrected(self):
+        screen = FakeScreen([10, ord("bad name"[0]), ord(" "), 10, 127, 127, ord("x"), 10, ord("q")])
+        with (
+            patch("mtmux.sidebar.curses.curs_set"),
+            patch("mtmux.sidebar._init_colors"),
+            patch("mtmux.sidebar._entries", return_value=[Entry("dev", "host", host="dev")]),
+            patch("mtmux.sidebar._bell_targets", return_value=set()),
+            patch("mtmux.sidebar._current_target", return_value=None),
+            patch("mtmux.sidebar.sessions.create") as create,
+            patch("mtmux.sidebar.cockpit.switch"),
+        ):
+            run(screen)
+
+        create.assert_called_once_with(Target("ssh", "x", "dev"))
 
     def test_wheel_reuses_wrapping_navigation(self):
         entries = [
