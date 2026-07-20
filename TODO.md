@@ -16,8 +16,8 @@
 - [x] Prevent sidebar from being resized live in tmux (interferes with mouse selection to copy/paste) while retaining keyboard resizing
 - [x] Creating a new session opens a text input at the bottom which is not obvious. Find alternatives
 - [] When hitting enter on a starred session that doesn't exist anymore, create it with that name either lcoally or on the right host
-- [] The highlighted row when left pane is unfocused makes text hard to read
-- [] The highlight of the active row is too strong and confuses with the cursor
+- [x] The highlighted row when left pane is unfocused makes text hard to read
+- [x] The highlight of the active row is too strong and confuses with the cursor
 
 MAY be superseded by UI rework
 - [] Highlighting the row to mark the new session on a host confuses with the active session. Find a better way to mark the new session

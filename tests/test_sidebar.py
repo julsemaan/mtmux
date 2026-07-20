@@ -263,7 +263,7 @@ class SidebarColorTest(unittest.TestCase):
             init_pair.call_args_list,
             [
                 call(1, 79, 233),
-                call(2, 233, 79),
+                call(2, 121, -1),
                 call(3, 36, -1),
                 call(4, 30, -1),
                 call(5, 79, -1),
@@ -273,7 +273,7 @@ class SidebarColorTest(unittest.TestCase):
             ],
         )
         self.assertEqual(sidebar._COLOR["title"], (1 << 8) | curses.A_BOLD)
-        self.assertEqual(sidebar._COLOR["active"], 2 << 8)
+        self.assertEqual(sidebar._COLOR["active"], (2 << 8) | curses.A_BOLD | curses.A_UNDERLINE)
         self.assertEqual(sidebar._COLOR["section"], (5 << 8) | curses.A_BOLD)
         self.assertEqual(sidebar._COLOR["hints"], (8 << 8) | curses.A_DIM)
 
@@ -292,7 +292,7 @@ class SidebarColorTest(unittest.TestCase):
             init_pair.call_args_list,
             [
                 call(1, curses.COLOR_CYAN, curses.COLOR_BLACK),
-                call(2, curses.COLOR_BLACK, curses.COLOR_CYAN),
+                call(2, curses.COLOR_CYAN, -1),
                 call(3, curses.COLOR_GREEN, -1),
                 call(4, curses.COLOR_CYAN, -1),
                 call(5, curses.COLOR_CYAN, -1),
@@ -301,7 +301,7 @@ class SidebarColorTest(unittest.TestCase):
                 call(8, curses.COLOR_CYAN, -1),
             ],
         )
-        self.assertEqual(sidebar._COLOR["active"], 2 << 8)
+        self.assertEqual(sidebar._COLOR["active"], (2 << 8) | curses.A_BOLD | curses.A_UNDERLINE)
         self.assertEqual(sidebar._COLOR["section"], (5 << 8) | curses.A_BOLD)
 
     def test_no_color_terminal_leaves_palette_empty(self):
@@ -433,6 +433,12 @@ class SidebarDrawTest(unittest.TestCase):
         footer = [call for call in screen.calls if call[0] == "addnstr" and call[1] >= 5]
         self.assertTrue(all(call[5] & curses.A_BOLD and call[5] & curses.A_REVERSE for call in footer))
 
+    def test_selected_host_and_inline_creation_render_pointer(self):
+        entry = Entry("dev", "host", host="dev")
+        with patch("mtmux.sidebar._ascii", return_value=False):
+            self.assertTrue(_entry_lines(entry, True, set(), None, 40)[0].startswith("› "))
+            self.assertTrue(_entry_lines(entry, True, set(), None, 40, "dev", "work")[0].startswith("› ＋ dev / new: work"))
+
     def test_inline_creation_renders_host_text_footer_and_cursor(self):
         for host, label in (("", "laptop"), ("dev", "dev")):
             screen = FakeScreen(size=(7, 40))
@@ -457,7 +463,7 @@ class SidebarDrawTest(unittest.TestCase):
             )
 
         row = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 1)
-        self.assertTrue(row[3].startswith("+ "))
+        self.assertTrue(row[3].startswith("> + "))
         cursor = next(call for call in screen.calls if call[0] == "move")
         self.assertLess(cursor[2], 16)
 
@@ -1136,7 +1142,7 @@ class SidebarDrawTest(unittest.TestCase):
         hosts = [entry for entry in entries if entry.kind == "host"]
         self.assertEqual([(entry.label, entry.host) for entry in hosts], [("laptop", ""), ("dev", "dev")])
         self.assertFalse(any(entry.kind == "create" for entry in entries))
-        self.assertEqual(_entry_lines(hosts[0], False, set(), None, 40), ["💻 laptop                             ＋"])
+        self.assertEqual(_entry_lines(hosts[0], False, set(), None, 40), ["  💻 laptop                           ＋"])
 
     def test_filtering_and_unavailable_hosts_are_not_selectable(self):
         filtered = _entries("work", snapshot(local=("work",), remotes={"dev": source("ssh", ("work",), host="dev")}))
@@ -1378,7 +1384,7 @@ class SidebarDrawTest(unittest.TestCase):
 
         text = "\n".join(str(call) for call in screen.calls)
         self.assertIn("● work", text)
-        self.assertIn("💻 laptop                  ＋", text)
+        self.assertIn("  💻 laptop                ＋", text)
 
     def test_selection_pointer_and_active_color_are_independent(self):
         active = Target("local", "active")
@@ -1393,18 +1399,53 @@ class SidebarDrawTest(unittest.TestCase):
         self.assertEqual(rows["● active"][5], 123)
         self.assertEqual(rows["› ● selected"][5], 45)
 
-    def test_unfocused_sidebar_hides_pointer_and_keeps_active_reverse(self):
+    def test_active_attr_is_bold_underlined_never_reverse_focused_or_unfocused(self):
+        entry = Entry("active", "session", Target("local", "active"))
+        active_style = 123 | curses.A_BOLD | curses.A_UNDERLINE
+        with patch.dict("mtmux.sidebar._COLOR", {"active": active_style}, clear=True):
+            for dimmed in (False, True):
+                attr = _entry_attr(entry, True, dimmed)
+                self.assertTrue(attr & curses.A_BOLD)
+                self.assertTrue(attr & curses.A_UNDERLINE)
+                self.assertFalse(attr & curses.A_REVERSE)
+                self.assertEqual(bool(attr & curses.A_DIM), dimmed)
+
+        with patch.dict("mtmux.sidebar._COLOR", {}, clear=True):
+            self.assertEqual(_entry_attr(entry, True), curses.A_BOLD | curses.A_UNDERLINE)
+
+    def test_active_session_leading_cursor_space_is_not_underlined(self):
+        target = Target("local", "active")
+        screen = FakeScreen(size=(6, 30))
+        active_style = 123 | curses.A_BOLD | curses.A_UNDERLINE
+
+        with patch.dict("mtmux.sidebar._COLOR", {"active": active_style}, clear=True):
+            _draw(screen, [Entry("active", "session", target)], 0, "ok", "", current_target=target)
+
+        self.assertIn(("chgat", 1, 0, 2, active_style & ~curses.A_UNDERLINE), screen.calls)
+
+    def test_unfocused_sidebar_hides_pointer_and_keeps_active_mint_bold_underlined_dimmed(self):
         active = Target("local", "active")
         selected = Target("local", "selected")
         screen = FakeScreen(size=(7, 30))
+        active_style = 123 | curses.A_BOLD | curses.A_UNDERLINE
 
-        with patch.dict("mtmux.sidebar._COLOR", {}, clear=True):
+        with patch.dict("mtmux.sidebar._COLOR", {"active": active_style}, clear=True):
             _draw(screen, [Entry("active", "session", active), Entry("selected", "session", selected)], 1, "ok", "", current_target=active, dimmed=True)
 
         rows = [call for call in screen.calls if call[0] == "addnstr" and ("active" in call[3] or "selected" in call[3])]
         self.assertFalse(any("›" in call[3] for call in rows))
         active_row = next(call for call in rows if "active" in call[3])
-        self.assertTrue(active_row[5] & curses.A_REVERSE)
+        self.assertEqual(active_row[5], active_style | curses.A_DIM)
+        self.assertFalse(active_row[5] & curses.A_REVERSE)
+
+    def test_selected_host_uses_pointer_without_active_session_style(self):
+        screen = FakeScreen(size=(6, 30))
+        with patch.dict("mtmux.sidebar._COLOR", {"active": 123 | curses.A_BOLD}, clear=True):
+            _draw(screen, [Entry("dev", "host", host="dev")], 0, "ok", "")
+
+        row = next(call for call in screen.calls if call[0] == "addnstr" and call[1] == 1)
+        self.assertTrue(row[3].startswith("› "))
+        self.assertEqual(row[5], curses.A_BOLD)
 
     def test_unfocused_viewport_follows_active_target_not_offscreen_selection(self):
         entries = [Entry(str(i), "session", Target("local", str(i))) for i in range(10)]

@@ -79,14 +79,15 @@ def _init_colors() -> None:
         curses.start_color()
         curses.use_default_colors()
         if getattr(curses, "COLORS", 0) >= 256:
-            charcoal, teal, green, mint = 233, 30, 36, 79
+            charcoal, teal, green, mint, active_mint = 233, 30, 36, 79, 121
         else:
-            charcoal, teal, green, mint = (
-                curses.COLOR_BLACK, curses.COLOR_CYAN, curses.COLOR_GREEN, curses.COLOR_CYAN
+            charcoal, teal, green, mint, active_mint = (
+                curses.COLOR_BLACK, curses.COLOR_CYAN, curses.COLOR_GREEN,
+                curses.COLOR_CYAN, curses.COLOR_CYAN,
             )
         pairs = {
             "title": (1, mint, charcoal, curses.A_BOLD),
-            "active": (2, charcoal, mint, 0),
+            "active": (2, active_mint, -1, curses.A_BOLD | curses.A_UNDERLINE),
             "local": (3, green, -1, 0),
             "remote": (4, teal, -1, 0),
             "create": (5, mint, -1, 0),
@@ -454,14 +455,15 @@ def _entry_lines(
     if entry.kind == "header":
         return [_truncate(entry.label, width)]
     if entry.kind == "host":
+        host_pointer = f"{pointer} "
         if creation_host is not None and entry.host == creation_host:
-            prefix = f"{icon['create']} {entry.label} / new: "
+            prefix = f"{host_pointer}{icon['create']} {entry.label} / new: "
             room = max(0, width - _cell_width(prefix))
             text = creation_text[-room:] if room else ""
             return [_truncate_cells(prefix, width - _cell_width(text)) + text]
         host_icon = icon["local_header"] if entry.host == "" else icon["remote_header"]
         suffix = icon["create"]
-        label = _truncate_cells(f"{host_icon} {entry.label}", max(0, width - _cell_width(suffix) - 1))
+        label = _truncate_cells(f"{host_pointer}{host_icon} {entry.label}", max(0, width - _cell_width(suffix) - 1))
         padding = max(1, width - _cell_width(label) - _cell_width(suffix))
         return [_truncate(label + " " * padding + suffix, width)]
     if entry.kind == "session":
@@ -485,7 +487,7 @@ def _entry_lines(
 
 def _entry_attr(entry: Entry, active: bool, dimmed: bool = False) -> int:
     if active:
-        attr = _color("active") or curses.A_REVERSE
+        attr = _color("active") or (curses.A_BOLD | curses.A_UNDERLINE)
     elif entry.kind == "section":
         attr = _color("section") or curses.A_BOLD
     elif entry.kind in ("header", "host"):
@@ -543,13 +545,16 @@ def _draw_entries(
             entry, selected_entry and not dimmed, bell_targets, current_target, w - 1,
             creation_host, creation_text,
         )
-        host_selected = selected_entry and entry.kind == "host" and not dimmed
-        base_attr = _entry_attr(entry, active_entry or host_selected, dimmed)
+        base_attr = _entry_attr(entry, active_entry, dimmed)
         for line_number, line in enumerate(lines):
             if row >= h - 1:
                 break
             attr = _fade(base_attr) if line_number and not active_entry else base_attr
             stdscr.addnstr(row, 0, line, w - 1, attr)
+            if active_entry and entry.kind == "session" and attr & curses.A_UNDERLINE:
+                prefix_width = 2 if line_number == 0 else len(line) - len(line.lstrip())
+                if prefix_width:
+                    stdscr.chgat(row, 0, prefix_width, attr & ~curses.A_UNDERLINE)
             if entry.kind == "host" and entry.host == creation_host:
                 cursor = (row, min(w - 1, _cell_width(line)))
             row += 1
