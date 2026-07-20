@@ -247,6 +247,7 @@ class SidebarColorTest(unittest.TestCase):
             ],
         )
         self.assertEqual(sidebar._COLOR["title"], (1 << 8) | curses.A_BOLD)
+        self.assertEqual(sidebar._COLOR["active"], 2 << 8)
         self.assertEqual(sidebar._COLOR["section"], (5 << 8) | curses.A_BOLD)
         self.assertEqual(sidebar._COLOR["hints"], (8 << 8) | curses.A_DIM)
 
@@ -274,6 +275,7 @@ class SidebarColorTest(unittest.TestCase):
                 call(8, curses.COLOR_CYAN, -1),
             ],
         )
+        self.assertEqual(sidebar._COLOR["active"], 2 << 8)
         self.assertEqual(sidebar._COLOR["section"], (5 << 8) | curses.A_BOLD)
 
     def test_no_color_terminal_leaves_palette_empty(self):
@@ -739,13 +741,13 @@ class SidebarDrawTest(unittest.TestCase):
         beep.assert_called_once_with()
         self.assertTrue(any(call[0] == "addnstr" and "🔔" in call[3] for call in screen.calls))
 
-    def test_single_click_selects_row(self):
+    def test_single_click_selects_and_switches_session(self):
         entries = [
             Entry("LOCAL", "header"),
             Entry("one", "session", Target("local", "one")),
             Entry("two", "session", Target("local", "two")),
         ]
-        screen = FakeScreen([curses.KEY_MOUSE, 10, ord("q")], size=(8, 30))
+        screen = FakeScreen([curses.KEY_MOUSE, ord("q")], size=(8, 30))
 
         with (
             patch("mtmux.sidebar.curses.curs_set"),
@@ -761,6 +763,23 @@ class SidebarDrawTest(unittest.TestCase):
 
         target = Target("local", "two")
         switch.assert_called_once_with(target, "env -u TMUX tmux -T clipboard new-session -A -s two")
+
+    def test_single_click_create_row_selects_without_opening_prompt(self):
+        screen = FakeScreen([curses.KEY_MOUSE, ord("q")], size=(8, 30))
+
+        with (
+            patch("mtmux.sidebar.curses.curs_set"),
+            patch("mtmux.sidebar.curses.mousemask"),
+            patch("mtmux.sidebar.curses.getmouse", return_value=(0, 0, 1, 0, curses.BUTTON1_CLICKED)),
+            patch("mtmux.sidebar._init_colors"),
+            patch("mtmux.sidebar._entries", return_value=[Entry("new local", "create", host="")]),
+            patch("mtmux.sidebar._bell_targets", return_value=set()),
+            patch("mtmux.sidebar._current_target", return_value=None),
+            patch("mtmux.sidebar._session_prompt") as prompt,
+        ):
+            run(screen)
+
+        prompt.assert_not_called()
 
     def test_double_click_reuses_switch_path(self):
         target = Target("local", "work")
@@ -843,7 +862,7 @@ class SidebarDrawTest(unittest.TestCase):
 
         self.assertEqual(selected, [4, 3, 1, 1])
 
-    def test_external_switch_to_favorite_focuses_starred_entry(self):
+    def test_external_switch_to_favorite_preserves_selection(self):
         old = Target("local", "old")
         target = Target("local", "work")
         selected = []
@@ -863,9 +882,9 @@ class SidebarDrawTest(unittest.TestCase):
         ):
             run(screen)
 
-        self.assertEqual(selected, [4, 1])
+        self.assertEqual(selected, [4, 4])
 
-    def test_external_switch_updates_selected_sidebar_row(self):
+    def test_external_switch_preserves_selected_sidebar_row(self):
         old = Target("local", "old")
         new = Target("local", "new")
         screen = FakeScreen([-1, 10, ord("q")])
@@ -884,7 +903,7 @@ class SidebarDrawTest(unittest.TestCase):
         ):
             run(screen)
 
-        switch.assert_called_once_with(new, "env -u TMUX tmux -T clipboard new-session -A -s new")
+        switch.assert_called_once_with(old, "env -u TMUX tmux -T clipboard new-session -A -s old")
 
     def test_live_filter_refreshes_then_clears_after_switch(self):
         screen = FakeScreen([ord("/"), ord("w"), 10, ord("q")])
@@ -1131,12 +1150,27 @@ class SidebarDrawTest(unittest.TestCase):
         self.assertIn("unavailable", lines[1])
         self.assertIn("...", "".join(lines))
 
-    def test_selected_starred_styles_both_rows_and_both_rows_map_to_entry(self):
-        entry = Entry("work", "session", Target("local", "work"), host="laptop", starred=True, starred_section=True)
+    def test_active_duplicate_is_highlighted_in_starred_and_all_sections(self):
+        target = Target("local", "work")
+        entries = [
+            Entry("work", "session", target, starred=True, starred_section=True),
+            Entry("work", "session", target, starred=True),
+        ]
+        screen = FakeScreen(size=(7, 30))
+
+        with patch.dict("mtmux.sidebar._COLOR", {"active": 123}, clear=True):
+            _draw(screen, entries, 0, "ok", "", current_target=target)
+
+        rows = [call for call in screen.calls if call[0] == "addnstr" and call[3].strip().endswith("work")]
+        self.assertEqual([call[5] for call in rows], [123, 123])
+
+    def test_active_starred_styles_both_rows_and_both_rows_map_to_entry(self):
+        target = Target("local", "work")
+        entry = Entry("work", "session", target, host="laptop", starred=True, starred_section=True)
         screen = FakeScreen(size=(6, 30))
 
-        with patch.dict("mtmux.sidebar._COLOR", {"selected": 123}, clear=True):
-            _draw(screen, [entry], 0, "ok", "")
+        with patch.dict("mtmux.sidebar._COLOR", {"active": 123}, clear=True):
+            _draw(screen, [entry], 0, "ok", "", current_target=target)
 
         rows = [call for call in screen.calls if call[0] == "addnstr" and call[1] in (1, 2)]
         self.assertEqual([call[5] for call in rows], [123, 123])
@@ -1274,13 +1308,41 @@ class SidebarDrawTest(unittest.TestCase):
         self.assertIn("● work", text)
         self.assertIn("＋ new local", text)
 
-    def test_selected_row_gets_selected_attr(self):
-        screen = FakeScreen(size=(6, 30))
+    def test_selection_pointer_and_active_color_are_independent(self):
+        active = Target("local", "active")
+        selected = Target("local", "selected")
+        entries = [Entry("active", "session", active), Entry("selected", "session", selected)]
+        screen = FakeScreen(size=(7, 30))
 
-        with patch.dict("mtmux.sidebar._COLOR", {"selected": 123}, clear=True):
-            _draw(screen, [Entry("LOCAL", "header"), Entry("work", "session", Target("local", "work"))], 1, "ok", "")
+        with patch.dict("mtmux.sidebar._COLOR", {"active": 123, "local": 45}, clear=True):
+            _draw(screen, entries, 1, "ok", "", current_target=active)
 
-        self.assertTrue(any(call[0] == "addnstr" and len(call) > 5 and call[3].endswith("work") and call[5] == 123 for call in screen.calls))
+        rows = {call[3].strip(): call for call in screen.calls if call[0] == "addnstr" and "session" not in call[3]}
+        self.assertEqual(rows["● active"][5], 123)
+        self.assertEqual(rows["› ● selected"][5], 45)
+
+    def test_unfocused_sidebar_hides_pointer_and_keeps_active_reverse(self):
+        active = Target("local", "active")
+        selected = Target("local", "selected")
+        screen = FakeScreen(size=(7, 30))
+
+        with patch.dict("mtmux.sidebar._COLOR", {}, clear=True):
+            _draw(screen, [Entry("active", "session", active), Entry("selected", "session", selected)], 1, "ok", "", current_target=active, dimmed=True)
+
+        rows = [call for call in screen.calls if call[0] == "addnstr" and ("active" in call[3] or "selected" in call[3])]
+        self.assertFalse(any("›" in call[3] for call in rows))
+        active_row = next(call for call in rows if "active" in call[3])
+        self.assertTrue(active_row[5] & curses.A_REVERSE)
+
+    def test_unfocused_viewport_follows_active_target_not_offscreen_selection(self):
+        entries = [Entry(str(i), "session", Target("local", str(i))) for i in range(10)]
+        screen = FakeScreen(size=(5, 30))
+
+        _draw(screen, entries, 9, "ok", "", current_target=entries[0].target, dimmed=True)
+
+        rendered = [call[3] for call in screen.calls if call[0] == "addnstr"]
+        self.assertTrue(any("0" in line for line in rendered))
+        self.assertFalse(any("9" in line for line in rendered))
 
     def test_scrolling_keeps_selected_visible(self):
         entries = [Entry(str(i), "session", Target("local", str(i))) for i in range(10)]
