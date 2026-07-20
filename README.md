@@ -31,6 +31,13 @@ mtmux cockpit
 
 That opens an outer tmux workspace with the mtmux sidebar on the left and your selected session on the right. Press `Enter` on a session to step into it; press `q` to close the sidebar, press `C-s s` whenever you want it back.
 
+## Development
+
+```sh
+make dev-install
+make test
+```
+
 ## How it works
 
 `mtmux cockpit` creates or attaches to a dedicated outer tmux server. That outer layer owns only the layout:

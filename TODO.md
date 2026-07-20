@@ -7,7 +7,7 @@
 - [x] When filtering rows, remove the "new" options
 - [] Start designing agents status in the left bar based on julsemaan/astatus
   - julsemaan-tmp/html-plans/2026-07-19-1537-automatic-starred-agent-panes.html
-- [] Make targets for common tasks (dev install, tests, etc)
+- [x] Make targets for common tasks (dev install, tests, etc)
 - [x] Handle persistent SSH connections via options in mtmux instead of forcing configuration in .ssh/config
 - [x] Don't require double clicks to switch session, clicking once switches to it
 - [x] When defocusing the left pane, it should highlight the currently active session
