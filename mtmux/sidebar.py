@@ -83,7 +83,7 @@ def _init_colors() -> None:
             )
         pairs = {
             "title": (1, mint, charcoal, curses.A_BOLD),
-            "selected": (2, charcoal, mint, 0),
+            "active": (2, charcoal, mint, 0),
             "local": (3, green, -1, 0),
             "remote": (4, teal, -1, 0),
             "create": (5, mint, -1, 0),
@@ -462,9 +462,9 @@ def _entry_lines(
     return [_truncate(f"  {icon['unavailable']} {entry.label}", width)]
 
 
-def _entry_attr(entry: Entry, selected: bool, dimmed: bool = False) -> int:
-    if selected:
-        attr = _color("selected") or curses.A_REVERSE
+def _entry_attr(entry: Entry, active: bool, dimmed: bool = False) -> int:
+    if active:
+        attr = _color("active") or curses.A_REVERSE
     elif entry.kind == "section":
         attr = _color("section") or curses.A_BOLD
     elif entry.kind == "header":
@@ -484,6 +484,17 @@ def _entry_attr(entry: Entry, selected: bool, dimmed: bool = False) -> int:
     return _fade(attr) if dimmed else attr
 
 
+def _view_index(
+    entries: list[Entry], selected: int, current_target: Target | None, dimmed: bool
+) -> int:
+    if not dimmed or current_target is None:
+        return selected
+    if 0 <= selected < len(entries) and entries[selected].target == current_target:
+        return selected
+    matches = [i for i, entry in enumerate(entries) if entry.target == current_target]
+    return next((i for i in matches if entries[i].starred_section), matches[0] if matches else selected)
+
+
 def _draw_entries(
     stdscr: curses.window,
     entries: list[Entry],
@@ -494,7 +505,7 @@ def _draw_entries(
     current_target: Target | None,
     dimmed: bool = False,
 ) -> None:
-    start, end = _viewport(entries, selected, h)
+    start, end = _viewport(entries, _view_index(entries, selected, current_target, dimmed), h)
     row = 1
     if start:
         attr = _color("hints") or curses.A_DIM
@@ -505,12 +516,13 @@ def _draw_entries(
             break
         entry = entries[idx]
         selected_entry = idx == selected
-        lines = _entry_lines(entry, selected_entry, bell_targets, current_target, w - 1)
-        base_attr = _entry_attr(entry, selected_entry, dimmed)
+        active_entry = entry.target is not None and entry.target == current_target
+        lines = _entry_lines(entry, selected_entry and not dimmed, bell_targets, current_target, w - 1)
+        base_attr = _entry_attr(entry, active_entry, dimmed)
         for line_number, line in enumerate(lines):
             if row >= h - 1:
                 break
-            attr = _fade(base_attr) if line_number and not selected_entry else base_attr
+            attr = _fade(base_attr) if line_number and not active_entry else base_attr
             stdscr.addnstr(row, 0, line, w - 1, attr)
             row += 1
     if end < len(entries) and row < h - 1:
@@ -586,7 +598,6 @@ def run(stdscr: curses.window) -> None:
     entries = _entries(state.filter_text, poller.snapshot, state.favorites)
     state.selected_index = _selected_index(entries, state.selected_target)
     _sync_selection(state, entries)
-    observed_target = state.selected_target
     cockpit_bell_target: Target | None = None
     next_cockpit_bell_poll = 0.0
     rendered: tuple[object, ...] | None = None
@@ -617,12 +628,6 @@ def run(stdscr: curses.window) -> None:
                 next_cockpit_bell_poll = now + COCKPIT_BELL_POLL_INTERVAL
             bell_targets = _bell_targets(poller.snapshot, cockpit_bell_target)
             current_target = _current_target()
-            if current_target != observed_target:
-                if current_target != state.selected_target:
-                    state.selected_target = current_target
-                    state.selected_starred_section = current_target in state.favorites
-                    _sync_selection(state, entries)
-                observed_target = current_target
             visible_bells = bell_targets - ({current_target} if current_target else set())
             if visible_bells - state.rang_bells:
                 curses.beep()
@@ -658,7 +663,8 @@ def run(stdscr: curses.window) -> None:
                 elif mouse_state & (getattr(curses, "BUTTON5_PRESSED", 0) or 0):
                     key = curses.KEY_DOWN
                 else:
-                    index = _entry_at_row(entries, state.selected_index, row, stdscr.getmaxyx()[0], footer_height)
+                    view_index = _view_index(entries, state.selected_index, current_target, dimmed)
+                    index = _entry_at_row(entries, view_index, row, stdscr.getmaxyx()[0], footer_height)
                     if index is None:
                         continue
                     state.selected_index = index
@@ -667,7 +673,10 @@ def run(stdscr: curses.window) -> None:
                     if mouse_state & (getattr(curses, "BUTTON1_DOUBLE_CLICKED", 0) or 0):
                         key = curses.KEY_ENTER
                     elif mouse_state & ((getattr(curses, "BUTTON1_CLICKED", 0) or 0) | (getattr(curses, "BUTTON1_PRESSED", 0) or 0)):
-                        continue
+                        if entries[index].kind == "session":
+                            key = curses.KEY_ENTER
+                        else:
+                            continue
                     else:
                         continue
             if state.filtering:

@@ -9,7 +9,7 @@
   - julsemaan-tmp/html-plans/2026-07-19-1537-automatic-starred-agent-panes.html
 - [] Make targets for common tasks (dev install, tests, etc)
 - [x] Handle persistent SSH connections via options in mtmux instead of forcing configuration in .ssh/config
-- [] Don't require double clicks to switch session, clicking once switches to it
-- [] When defocusing the left pane, it should highlight the currently active session
-- [] When cycling through the various sessions with the keyboard, it is not obvious which is active because we use the highlight to show the active one and the selection. Rethink it
+- [x] Don't require double clicks to switch session, clicking once switches to it
+- [x] When defocusing the left pane, it should highlight the currently active session
+- [x] When cycling through the various sessions with the keyboard, it is not obvious which is active because we use the highlight to show the active one and the selection. Rethink it
 - [] When switching from one session to another, it creates a bell ring
