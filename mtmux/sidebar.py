@@ -631,7 +631,7 @@ def run(stdscr: curses.window) -> None:
             visible_bells = bell_targets - ({current_target} if current_target else set())
             if visible_bells - state.rang_bells:
                 curses.beep()
-            state.rang_bells = visible_bells
+            state.rang_bells = bell_targets
             dimmed = not _pane_active()
             render_state = (
                 tuple(entries), state.selected_index, state.status, state.filter_text,

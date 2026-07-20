@@ -714,6 +714,23 @@ class SidebarDrawTest(unittest.TestCase):
 
         beep.assert_called_once_with()
 
+    def test_switching_away_from_ringing_current_target_does_not_beep(self):
+        screen = FakeScreen([-1, ord("q")])
+        ringing = Target("local", "a")
+        current = Target("local", "b")
+
+        with (
+            patch("mtmux.sidebar.curses.curs_set"),
+            patch("mtmux.sidebar.curses.beep") as beep,
+            patch("mtmux.sidebar._init_colors"),
+            patch("mtmux.sidebar._entries", return_value=[Entry("a", "session", ringing)]),
+            patch("mtmux.sidebar._bell_targets", return_value={ringing}),
+            patch("mtmux.sidebar._current_target", side_effect=[ringing, ringing, current]),
+        ):
+            run(screen)
+
+        beep.assert_not_called()
+
     def test_run_propagates_new_local_snapshot_bell_to_sidebar(self):
         screen = FakeScreen([-1, ord("q")], size=(8, 40))
         target = Target("local", "work")
