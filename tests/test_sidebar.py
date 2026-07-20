@@ -747,6 +747,7 @@ class SidebarDrawTest(unittest.TestCase):
         with (
             patch("mtmux.sidebar.DiscoveryPoller", return_value=poller),
             patch("mtmux.sidebar.load_hosts", return_value=[]),
+            patch("mtmux.sidebar.load_stars", return_value=[]),
             patch("mtmux.sidebar.curses.curs_set"),
             patch("mtmux.sidebar.curses.beep") as beep,
             patch("mtmux.sidebar._init_colors"),
@@ -1397,6 +1398,8 @@ class SidebarDrawTest(unittest.TestCase):
         with (
             patch("mtmux.sidebar.DiscoveryPoller", return_value=poller),
             patch("mtmux.sidebar.load_hosts", return_value=["dev"]),
+            patch("mtmux.sidebar.load_stars", return_value=[]),
+            patch("mtmux.sidebar.cockpit.bell_target", return_value=None),
             patch("mtmux.sidebar.curses.curs_set"),
             patch("mtmux.sidebar._init_colors"),
             patch("mtmux.sidebar._current_target", return_value=None),
@@ -1458,6 +1461,8 @@ class SidebarDrawTest(unittest.TestCase):
         with (
             patch("mtmux.sidebar.DiscoveryPoller", return_value=poller),
             patch("mtmux.sidebar.load_hosts", return_value=["dev"]),
+            patch("mtmux.sidebar.load_stars", return_value=[]),
+            patch("mtmux.sidebar.cockpit.bell_target", return_value=None),
             patch("mtmux.sidebar.curses.curs_set"),
             patch("mtmux.sidebar._init_colors"),
             patch("mtmux.sidebar._current_target", return_value=None),
@@ -1476,6 +1481,7 @@ class SidebarDrawTest(unittest.TestCase):
         with (
             patch("mtmux.sidebar.DiscoveryPoller", return_value=poller),
             patch("mtmux.sidebar.load_hosts", return_value=[]),
+            patch("mtmux.sidebar.cockpit.bell_target", return_value=None),
             patch("mtmux.sidebar.curses.curs_set"),
             patch("mtmux.sidebar._init_colors"),
             patch("mtmux.sidebar._current_target", return_value=None),
