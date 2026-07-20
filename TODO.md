@@ -15,3 +15,4 @@
 - [x] When switching from one session to another, it creates a bell ring. Doesn't happen 100% of the time for some reason
 - [x] Prevent sidebar from being resized live in tmux (interferes with mouse selection to copy/paste) while retaining keyboard resizing
 - [x] Creating a new session opens a text input at the bottom which is not obvious. Find alternatives
+- [] The highlighted row when left pane is unfocused makes text hard to read
