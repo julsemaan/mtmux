@@ -239,8 +239,18 @@ def current_target() -> Target | None:
     pane = right_pane()
     command = tmux.out("display-message", "-p", "-t", pane or "", "#{pane_start_command}", check=False)
     try:
-        if match := re.search(r"ssh -t ([A-Za-z0-9_.-]+) .* -s ([A-Za-z0-9_.-]+)", command):
-            return Target("ssh", match.group(2), match.group(1))
+        parts = shlex.split(command)
+        if parts and parts[0] == "ssh":
+            index = 1
+            while index < len(parts):
+                if parts[index] == "-o":
+                    index += 2
+                elif parts[index].startswith("-"):
+                    index += 1
+                else:
+                    break
+            if index < len(parts) and (match := re.search(r"(?:^| )tmux .* -s ([A-Za-z0-9_.-]+)", " ".join(parts[index + 1:]))):
+                return Target("ssh", match.group(1), parts[index])
         if match := re.search(r"(?:^| )tmux new-session .* -s ([A-Za-z0-9_.-]+)", command):
             return Target("local", match.group(1))
     except SystemExit:

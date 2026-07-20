@@ -8,8 +8,9 @@ import subprocess
 import tempfile
 import time
 
-from .config import load_hosts
+from .config import load_hosts, load_persistent_ssh
 from .names import Target, validate_host
+from .sessions import ssh_command
 
 
 WINDOWS_COMMAND = 'tmux list-windows -a -F "#{session_name}:#{window_bell_flag}:#{window_flags}"'
@@ -104,12 +105,13 @@ def local_snapshot() -> SourceSnapshot:
     return _source_result(proc.returncode, proc.stdout, proc.stderr, kind="local")
 
 
-def _ssh_command(host: str) -> list[str]:
-    return [
-        "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+def _ssh_command(host: str, persistent_ssh: bool) -> tuple[str, ...]:
+    return ssh_command(
+        "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
         "-o", "ServerAliveInterval=1", "-o", "ServerAliveCountMax=1",
         validate_host(host), WINDOWS_COMMAND,
-    ]
+        persistent_ssh=persistent_ssh,
+    )
 
 
 def _read_output(output: object, fallback: str | bytes | None = None) -> str | None:
@@ -126,7 +128,7 @@ def remote_snapshot(host: str) -> SourceSnapshot:
     host = validate_host(host)
     with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
         try:
-            proc = subprocess.run(_ssh_command(host), stdout=output, stderr=errors, timeout=10)
+            proc = subprocess.run(_ssh_command(host, load_persistent_ssh()), stdout=output, stderr=errors, timeout=10)
         except subprocess.TimeoutExpired:
             return SourceSnapshot(False, (), frozenset(), "timed out")
         except OSError as error:
@@ -171,6 +173,7 @@ class DiscoveryPoller:
     ) -> None:
         self.hosts = tuple(validate_host(host) for host in hosts)
         self._local_snapshot = local or local_snapshot
+        self._persistent_ssh = load_persistent_ssh()
         self.local = self._local_snapshot()
         self.remotes: dict[str, SourceSnapshot | None] = dict.fromkeys(self.hosts)
         self._popen = popen
@@ -211,7 +214,7 @@ class DiscoveryPoller:
         output = tempfile.TemporaryFile()
         errors = tempfile.TemporaryFile()
         try:
-            process = self._popen(_ssh_command(host), stdout=output, stderr=errors)
+            process = self._popen(_ssh_command(host, self._persistent_ssh), stdout=output, stderr=errors)
         except OSError as error:
             output.close()
             errors.close()

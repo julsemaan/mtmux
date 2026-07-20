@@ -52,6 +52,7 @@ hosts = ["my-remote-machine"]
 prefix = "C-s"
 sidebar_width = 40
 status_timeout = 5
+persistent_ssh = true
 ```
 
 ### Prefix
@@ -64,20 +65,17 @@ To restore old prefix, set `prefix = "C-g"` and rerun `mtmux cockpit`.
 
 ### Remote hosts
 
-Hosts are SSH aliases only. Put users, ports, keys, proxies, IPv6, etc. in `~/.ssh/config`.
+Hosts are SSH aliases only. Keep host-specific users, ports, keys, proxies, IPv6, and other connection settings in `~/.ssh/config`.
 
-For fast background discovery, let OpenSSH reuse one authenticated transport per host:
+By default, mtmux makes OpenSSH reuse one authenticated transport per host with `ControlMaster=auto`, `ControlPersist=10m`, and `ControlPath=~/.ssh/mtmux-%C`. Later discovery polls, switches, creates, and kills avoid repeating TCP setup, key exchange, and authentication. Control sockets remain for 10 minutes after last use.
 
-```sshconfig
-Host my-remote-machine
-    ControlMaster auto
-    ControlPersist 10m
-    ControlPath ~/.ssh/mtmux-%C
+To omit mtmux's persistence options, set:
+
+```toml
+persistent_ssh = false
 ```
 
-`ControlMaster` makes first SSH process own shared connection. `ControlPersist` keeps it alive after command exits. Later discovery polls, switches, creates, and kills open logical channels without repeating TCP setup, key exchange, or authentication. Keep control socket in directory writable only by your user.
-
-`mtmux` doesn't provide SSH options for the hosts, they must be configured via your SSH config (defaults to `~/.ssh/config`)
+SSH config still applies, so this opt-out does not disable multiplexing configured there.
 
 Names of the hosts must match:
 

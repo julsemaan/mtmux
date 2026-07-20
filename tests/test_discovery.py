@@ -8,6 +8,7 @@ from mtmux.discovery import (
     SourceSnapshot,
     _clean_env,
     _parse_source_snapshot,
+    _ssh_command,
     discover,
     local_snapshot,
     remote_snapshot,
@@ -72,6 +73,29 @@ class DiscoverySnapshotTest(unittest.TestCase):
 
         self.assertEqual(snapshot.sessions, (Target("local", "work"), Target("ssh", "chat", "dev")))
         self.assertEqual(snapshot.bells, frozenset({Target("local", "work"), Target("ssh", "chat", "dev")}))
+
+    def test_ssh_command_preserves_discovery_options_with_optional_persistence(self):
+        base = (
+            "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+            "-o", "ServerAliveInterval=1", "-o", "ServerAliveCountMax=1",
+            "dev", 'tmux list-windows -a -F "#{session_name}:#{window_bell_flag}:#{window_flags}"',
+        )
+        persistence = (
+            "-o", "ControlMaster=auto", "-o", "ControlPersist=10m",
+            "-o", "ControlPath=~/.ssh/mtmux-%C",
+        )
+        self.assertEqual(_ssh_command("dev", True), ("ssh", *persistence, *base))
+        self.assertEqual(_ssh_command("dev", False), ("ssh", *base))
+
+    def test_remote_snapshot_resolves_persistence_for_command(self):
+        proc = Mock(returncode=0, stdout="", stderr="")
+        with (
+            patch("mtmux.discovery.load_persistent_ssh", return_value=False),
+            patch("mtmux.discovery.subprocess.run", return_value=proc) as run,
+        ):
+            remote_snapshot("dev")
+
+        self.assertNotIn("ControlMaster=auto", run.call_args.args[0])
 
     def test_remote_snapshot_rejects_oversized_output_and_distinguishes_no_server(self):
         def oversized(command, **kwargs):
@@ -173,6 +197,16 @@ class DiscoveryPollerTest(unittest.TestCase):
         self.assertTrue(poller.tick())
 
         self.assertEqual(local.call_count, 3)
+
+    def test_poller_resolves_persistence_once_and_uses_it_for_commands(self):
+        popen = Mock(return_value=FakeProcess())
+        with patch("mtmux.discovery.load_persistent_ssh", return_value=False) as load:
+            poller = self.make_poller(["dev"], popen=popen, clock=Mock(return_value=0))
+            poller.tick()
+
+        load.assert_called_once_with()
+        self.assertNotIn("ControlMaster=auto", popen.call_args.args[0])
+        poller.close()
 
     def test_pending_process_does_not_duplicate_or_block(self):
         process = FakeProcess()

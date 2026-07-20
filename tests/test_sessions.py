@@ -3,19 +3,33 @@ import unittest
 from unittest.mock import patch
 
 from mtmux.names import Target
-from mtmux.sessions import attach_command, create, kill
+from mtmux.sessions import attach_command, create, kill, ssh_command
 
 
 class SessionOperationsTest(unittest.TestCase):
+    def test_ssh_command_adds_persistence_options_when_enabled(self):
+        self.assertEqual(
+            ssh_command("-t", "dev", "remote command", persistent_ssh=True),
+            (
+                "ssh", "-o", "ControlMaster=auto", "-o", "ControlPersist=10m",
+                "-o", "ControlPath=~/.ssh/mtmux-%C", "-t", "dev", "remote command",
+            ),
+        )
+        self.assertEqual(
+            ssh_command("-t", "dev", "remote command", persistent_ssh=False),
+            ("ssh", "-t", "dev", "remote command"),
+        )
+
     def test_attach_commands_quote_local_and_remote_targets(self):
         self.assertEqual(
             attach_command(Target("local", "work")),
             "env -u TMUX tmux -T clipboard new-session -A -s work",
         )
-        self.assertEqual(
-            attach_command(Target("ssh", "work", "dev")),
-            "ssh -t dev 'tmux -T clipboard new-session -A -s work'",
-        )
+        with patch("mtmux.sessions.load_persistent_ssh", return_value=True):
+            self.assertEqual(
+                attach_command(Target("ssh", "work", "dev")),
+                "ssh -o ControlMaster=auto -o ControlPersist=10m -o 'ControlPath=~/.ssh/mtmux-%C' -t dev 'tmux -T clipboard new-session -A -s work'",
+            )
 
     def test_kill_local_session_uses_default_server(self):
         with (
@@ -48,16 +62,22 @@ class SessionOperationsTest(unittest.TestCase):
             env={"PATH": "x"},
         )
 
-    def test_remote_create_and_kill_quote_session(self):
+    def test_remote_create_and_kill_use_configured_persistence(self):
         target = Target("ssh", "work.one", "dev")
-        with patch("mtmux.sessions.subprocess.run") as run:
+        with (
+            patch("mtmux.sessions.load_persistent_ssh", side_effect=[True, False]),
+            patch("mtmux.sessions.subprocess.run") as run,
+        ):
             create(target)
             kill(target)
 
         self.assertEqual(
             [call.args[0] for call in run.call_args_list],
             [
-                ("ssh", "dev", "tmux new-session -Ad -s work.one"),
+                (
+                    "ssh", "-o", "ControlMaster=auto", "-o", "ControlPersist=10m",
+                    "-o", "ControlPath=~/.ssh/mtmux-%C", "dev", "tmux new-session -Ad -s work.one",
+                ),
                 ("ssh", "dev", "tmux kill-session -t work.one"),
             ],
         )

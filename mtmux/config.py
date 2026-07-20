@@ -9,7 +9,8 @@ from .names import Target, parse_target, validate_host
 DEFAULT_PREFIX = "C-s"
 DEFAULT_SIDEBAR_WIDTH = 40
 DEFAULT_STATUS_TIMEOUT = 5
-CONFIG_TEXT = f'hosts = []\nprefix = "{DEFAULT_PREFIX}"\nsidebar_width = {DEFAULT_SIDEBAR_WIDTH}\nstatus_timeout = {DEFAULT_STATUS_TIMEOUT}\n'
+DEFAULT_PERSISTENT_SSH = True
+CONFIG_TEXT = f'hosts = []\nprefix = "{DEFAULT_PREFIX}"\nsidebar_width = {DEFAULT_SIDEBAR_WIDTH}\nstatus_timeout = {DEFAULT_STATUS_TIMEOUT}\npersistent_ssh = true\n'
 WRAPPER_TEXT = """unbind C-b
 set -g status off
 set -g mouse on
@@ -68,6 +69,14 @@ def load_status_timeout() -> int:
     if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout < 1:
         raise SystemExit(f"Invalid config {cfg}: status_timeout must be a positive integer")
     return timeout
+
+
+def load_persistent_ssh() -> bool:
+    cfg, data = _load_config()
+    persistent = data.get("persistent_ssh", DEFAULT_PERSISTENT_SSH)
+    if not isinstance(persistent, bool):
+        raise SystemExit(f"Invalid config {cfg}: persistent_ssh must be a boolean")
+    return persistent
 
 
 def load_hosts() -> list[str]:
