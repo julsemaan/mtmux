@@ -103,10 +103,9 @@ Switching uses outer tmux `respawn-pane` on right pane. Real tmux sessions stay 
 - `C-s s`: focus sidebar; recreates it if quit
 - `C-s 1`–`C-s 9`: switch directly to numbered starred target
 - `j` / `k` or arrows: move selection pointer (`›`)
-- `Enter`: switch selected target
+- `Enter`: switch selected session, or prompt to create on selected host line
 - `f`: star or unstar selected target; new stars append to STARRED order
 - `K` / `J`: move selected STARRED target up/down without wrapping
-- `n`: create session for selected group/target
 - `x`: kill selected session (asks first)
 - `r`: refresh discovery
 - `/`: filter
@@ -120,9 +119,8 @@ Starred sessions appear first in persisted order and remain in their LOCAL/SSH s
 ## Mouse controls
 
 - click session row: select and switch
-- click create row: select
-- double-click create row: open prompt
-- wheel over sidebar: navigate
+- click available host row: select and open creation prompt
+- wheel over sidebar: navigate selectable session and host rows
 - right-pane mouse events: forwarded by outer tmux to mouse-aware applications
 
 Tmux mouse capture may require holding `Shift` for terminal-native text selection.

@@ -20,10 +20,9 @@ Navigation
   q      quit sidebar only
 
 Session actions
-  Enter  switch
+  Enter  switch session / create on host line
   f      star/unstar session
   K/J    move starred session up/down
-  n      new session
   x      kill selected session
   /      filter sessions
   r      refresh
@@ -35,7 +34,7 @@ Recovery
 
 Examples
   /work  filter sessions matching work
-  n      create local or remote session from selected group
+  Enter  create session on selected local or remote host line
 """
     return f"printf %s {shlex.quote(text)}; exec sh"
 
